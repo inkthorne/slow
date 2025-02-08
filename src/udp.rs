@@ -1,7 +1,18 @@
 use std::net::UdpSocket;
 use serde_json::Value;
 
-pub fn listen_for_udp_packets(port: u16) {
+/// Listens for UDP packets on the specified port.
+/// 
+/// # Arguments
+/// 
+/// * `port` - A u16 that specifies the port number to bind to.
+/// * `callback` - A function to be called when a packet is received.
+/// 
+/// This function does not return a value.
+pub fn listen_for_udp_packets<F>(port: u16, callback: F)
+where
+    F: Fn(&Value) + Send + 'static,
+{
     let address = format!("localhost:{}", port);
     let socket = UdpSocket::bind(&address).expect("Couldn't bind to address");
     let mut buf = [0; 1024];
@@ -12,7 +23,7 @@ pub fn listen_for_udp_packets(port: u16) {
             Ok(json) => {
                 if let Some(slow) = json.get("slow") {
                     if slow == "1.0" {
-                        println!("Received {} bytes from {}: {:?}", amt, src, json);
+                        callback(&json);
                     } else {
                         println!("Rejected packet from {}: {:?}", src, json);
                     }

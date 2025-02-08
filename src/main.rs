@@ -1,11 +1,12 @@
 use std::thread;
 use serde_json::json;
+use serde_json::Value;
 mod udp;
 
 fn main() {
     println!("Hello, world!");
     thread::spawn(|| {
-        udp::listen_for_udp_packets(2345);
+        udp::listen_for_udp_packets(2345, on_packet_received);
     });
 
     thread::spawn(|| {
@@ -23,4 +24,8 @@ fn main() {
 
     // Keep the main thread alive to allow other threads to run
     loop {}
+}
+
+fn on_packet_received(json: &Value) {
+    println!("Callback received JSON: {:?}", json);
 }
