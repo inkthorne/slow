@@ -5,14 +5,14 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 mod connection;
-mod json_connection;
+mod junction;
 
 fn main() {
     println!("Hello, world!");
-    let mut connection =
-        connection::SlowConnection::new(2345).expect("Couldn't create SlowConnection"); // Handle the Result
+    let addr: SocketAddr = "[::1]:2345".parse().expect("Invalid address");
+    let mut junction = junction::SlowJunction::new(addr).expect("Couldn't create SlowJunction");
     thread::spawn(move || {
-        connection.listen(on_packet_received);
+        junction.run(on_packet_received);
     });
 
     thread::spawn(|| {
@@ -20,8 +20,11 @@ fn main() {
         loop {
             let mut rng = rand::thread_rng();
             let bind_port: u16 = rng.gen_range(1024..65535); // Generate a random port number
-            let connection = json_connection::JsonConnection::new(bind_port)
-                .expect("Couldn't create JsonConnection");
+            let bind_addr: SocketAddr = format!("[::1]:{}", bind_port)
+                .parse()
+                .expect("Invalid address");
+            let connection =
+                connection::JsonConnection::new(bind_addr).expect("Couldn't create JsonConnection");
             let json_message = json!({
                 "message": "Hello from sender!",
                 "slow": "0.1"

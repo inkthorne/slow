@@ -1,60 +1,50 @@
-use crate::json_connection::{JsonConnection, JsonPacket};
 use serde_json::Value;
-use std::collections::HashSet;
-use std::net::SocketAddr;
+use std::io::ErrorKind;
+use std::net::{SocketAddr, UdpSocket};
 
-pub struct SlowConnection {
-    received_from: HashSet<SocketAddr>,
-    connection: JsonConnection, // Added connection as a member
+pub struct JsonConnection {
+    socket: UdpSocket,
 }
 
-impl SlowConnection {
-    /// Creates a new `SlowConnection` instance.
+pub struct JsonPacket {
+    pub addr: SocketAddr,
+    pub json: Value,
+}
+
+impl JsonConnection {
+    /// Creates a new `JsonConnection` instance.
     ///
     /// # Arguments
     ///
-    /// * `port` - A u16 that specifies the port number to bind to.
+    /// * `addr` - A `SocketAddr` that specifies the address to bind to.
     ///
     /// # Returns
     ///
-    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowConnection` or an error.
-    pub fn new(port: u16) -> std::io::Result<Self> {
-        Ok(Self {
-            received_from: HashSet::new(),
-            connection: JsonConnection::new(port)?, // Initialize connection
-        })
+    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `JsonConnection` or an error.
+    pub fn new(addr: SocketAddr) -> std::io::Result<Self> {
+        let socket = UdpSocket::bind(addr)?;
+        socket.set_nonblocking(true)?;
+        Ok(JsonConnection { socket })
     }
 
-    /// Listens for UDP packets on the specified port.
-    ///
-    /// # Arguments
-    ///
-    /// * `callback` - A function to be called when a packet is received.
-    ///
-    /// This function does not return a value.
-    pub fn listen<F>(&mut self, callback: F)
-    where
-        F: Fn(&Value) + Send + 'static,
-    {
-        loop {
-            match self.connection.recv() {
-                Some(JsonPacket { addr, json }) => {
-                    self.received_from.insert(addr);
-                    callback(&json);
-                    self.dump_addresses();
-                }
-                None => {
-                    // No packet received, continue listening
-                    continue;
+    pub fn send(&self, addr: &str, json: &Value) -> std::io::Result<()> {
+        let data = serde_json::to_vec(json)?;
+        self.socket.send_to(&data, addr)?;
+        Ok(())
+    }
+
+    pub fn recv(&self) -> Option<JsonPacket> {
+        let mut buf = [0; 1024];
+        match self.socket.recv_from(&mut buf) {
+            Ok((amt, src)) => {
+                let data = &buf[..amt];
+                match serde_json::from_slice::<Value>(data) {
+                    Ok(json) => Some(JsonPacket { addr: src, json }),
+                    Err(_) => None,
                 }
             }
-        }
-    }
-
-    /// Prints the contents of `received_from`.
-    pub fn dump_addresses(&self) {
-        for addr in &self.received_from {
-            println!("{}", addr);
+            Err(ref e) if e.kind() == ErrorKind::WouldBlock => None,
+            Err(_) => None,
         }
     }
 }
