@@ -9,10 +9,7 @@ mod junction;
 fn main() {
     println!("Hello, world!");
     let addr: SocketAddr = "[::1]:2345".parse().expect("Invalid address");
-    let mut junction = junction::SlowJunction::new(addr).expect("Couldn't create SlowJunction");
-    thread::spawn(move || {
-        junction.run();
-    });
+    let junction = junction::SlowJunction::new(addr).expect("Couldn't create SlowJunction");
 
     thread::spawn(|| {
         let addr: SocketAddr = "[::1]:2345".parse().expect("Invalid address");
@@ -37,6 +34,10 @@ fn main() {
 
     // Keep the main thread alive to allow other threads to run
     loop {
-        thread::sleep(Duration::from_secs(5)); // Add delay of 5 seconds
+        while let Some(packet) = junction.recv() {
+            println!("Received packet: {:?}", packet.json);
+        }
+        junction.dump_addresses();
+        thread::sleep(Duration::from_secs(2)); // Add delay of 5 seconds
     }
 }

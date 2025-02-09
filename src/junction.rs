@@ -6,7 +6,7 @@ use serde_json::Value;
 
 pub struct SlowJunction {
     connection: JsonConnection,
-    received_from: HashSet<SocketAddr>,
+    received_from: Arc<Mutex<HashSet<SocketAddr>>>,
     send_queue: Arc<Mutex<VecDeque<Value>>>,
     received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
 }
@@ -21,30 +21,37 @@ impl SlowJunction {
     /// # Returns
     ///
     /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
-    pub fn new(addr: SocketAddr) -> std::io::Result<Self> {
+    pub fn new(addr: SocketAddr) -> std::io::Result<Arc<Self>> {
         let connection = JsonConnection::new(addr)?;
-        Ok(Self {
+        let junction = Arc::new(Self {
             connection,
-            received_from: HashSet::new(),
+            received_from: Arc::new(Mutex::new(HashSet::new())),
             send_queue: Arc::new(Mutex::new(VecDeque::new())),
             received_queue: Arc::new(Mutex::new(VecDeque::new())),
-        })
+        });
+
+        let junction_clone = Arc::clone(&junction);
+        std::thread::spawn(move || {
+            junction_clone.run();
+        });
+
+        Ok(junction)
     }
 
-    fn update(&mut self) {
+    fn update(&self) {
         while let Some(json_packet) = self.connection.recv() {
             self.on_packet_received(json_packet);
         }
 
         let mut queue = self.send_queue.lock().unwrap();
         while let Some(json) = queue.pop_front() {
-            for addr in &self.received_from {
+            for addr in self.received_from.lock().unwrap().iter() {
                 self.connection.send(&addr.to_string(), &json).expect("Failed to send JSON packet");
             }
         }
     }
 
-    pub fn run(&mut self) {
+    fn run(&self) {
         loop {
             self.update();
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -52,7 +59,7 @@ impl SlowJunction {
     }
 
     pub fn dump_addresses(&self) {
-        for addr in &self.received_from {
+        for addr in self.received_from.lock().unwrap().iter() {
             println!("{}", addr);
         }
     }
@@ -62,13 +69,19 @@ impl SlowJunction {
         queue.push_back(json);
     }
 
-    fn on_packet_received(&mut self, json_packet: JsonPacket) {
-        println!("Received JSON: {:?}", json_packet.json);
-        self.received_from.insert(json_packet.addr);
+    pub fn recv(&self) -> Option<JsonPacket> {
+        let mut queue = self.received_queue.lock().unwrap();
+        queue.pop_front()
+    }
+
+    fn on_packet_received(&self, json_packet: JsonPacket) {
+        {
+            let mut received_from = self.received_from.lock().unwrap();
+            received_from.insert(json_packet.addr);
+        }
         {
             let mut queue = self.received_queue.lock().unwrap();
             queue.push_back(json_packet);
         }
-        self.dump_addresses();
     }
 }
