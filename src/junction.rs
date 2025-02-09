@@ -38,6 +38,35 @@ impl SlowJunction {
         Ok(junction)
     }
 
+    /// Dumps the addresses of all peers that have sent packets to the `SlowJunction`.
+    pub fn dump_addresses(&self) {
+        for addr in self.received_from.lock().unwrap().iter() {
+            println!("{}", addr);
+        }
+    }
+
+    /// Queues a JSON value to be sent to all peers.
+    ///
+    /// # Arguments
+    ///
+    /// * `json` - A `Value` representing the JSON data to be queued.
+    pub fn send(&self, json: Value) {
+        let mut queue = self.send_queue.lock().unwrap();
+        queue.push_back(json);
+    }
+
+    /// Receives a JSON packet from the received queue.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<JsonPacket>` - An optional JSON packet if available.
+    pub fn recv(&self) -> Option<JsonPacket> {
+        let mut queue = self.received_queue.lock().unwrap();
+        queue.pop_front()
+    }
+}
+
+impl SlowJunction {
     fn update(&self) {
         while let Some(json_packet) = self.connection.recv() {
             self.on_packet_received(json_packet);
@@ -56,22 +85,6 @@ impl SlowJunction {
             self.update();
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-    }
-
-    pub fn dump_addresses(&self) {
-        for addr in self.received_from.lock().unwrap().iter() {
-            println!("{}", addr);
-        }
-    }
-
-    pub fn send(&self, json: Value) {
-        let mut queue = self.send_queue.lock().unwrap();
-        queue.push_back(json);
-    }
-
-    pub fn recv(&self) -> Option<JsonPacket> {
-        let mut queue = self.received_queue.lock().unwrap();
-        queue.pop_front()
     }
 
     fn on_packet_received(&self, json_packet: JsonPacket) {

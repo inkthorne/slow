@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 mod connection;
-mod junction;
+pub mod junction;
 
 fn main() {
     println!("Hello, world!");
