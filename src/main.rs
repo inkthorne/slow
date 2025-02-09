@@ -1,4 +1,3 @@
-use rand::Rng;
 use serde_json::json;
 use std::net::SocketAddr;
 use std::thread;
@@ -8,36 +7,31 @@ pub mod junction;
 
 fn main() {
     println!("Hello, world!");
-    let addr: SocketAddr = "[::1]:2345".parse().expect("Invalid address");
-    let junction = junction::SlowJunction::new(addr).expect("Couldn't create SlowJunction");
+    let addr: SocketAddr = "[::1]:2222".parse().expect("Invalid address");
+    let junction1 = junction::SlowJunction::new(addr).expect("Couldn't create SlowJunction");
 
-    thread::spawn(|| {
-        let addr: SocketAddr = "[::1]:2345".parse().expect("Invalid address");
+    // Create a second junction and seed it with the first junction's address
+    let junction2_addr: SocketAddr = "[::1]:3333".parse().expect("Invalid address");
+    let junction2 = junction::SlowJunction::new(junction2_addr).expect("Couldn't create SlowJunction");
+    junction2.seed(addr);
+
+    thread::spawn(move || {
         loop {
-            let mut rng = rand::thread_rng();
-            let bind_port: u16 = rng.gen_range(1024..65535); // Generate a random port number
-            let bind_addr: SocketAddr = format!("[::1]:{}", bind_port)
-                .parse()
-                .expect("Invalid address");
-            let connection =
-                connection::JsonConnection::new(bind_addr).expect("Couldn't create JsonConnection");
             let json_message = json!({
                 "message": "Hello from sender!",
                 "slow": "0.1"
             });
-            connection
-                .send(&addr.to_string(), &json_message)
-                .expect("Failed to send JSON packet");
+            junction2.send(json_message);
             thread::sleep(Duration::from_secs(1));
         }
     });
 
     // Keep the main thread alive to allow other threads to run
     loop {
-        while let Some(packet) = junction.recv() {
+        while let Some(packet) = junction1.recv() {
             println!("Received packet: {:?}", packet.json);
         }
-        junction.dump_addresses();
+        junction1.dump_addresses();
         thread::sleep(Duration::from_secs(2)); // Add delay of 5 seconds
     }
 }

@@ -64,6 +64,16 @@ impl SlowJunction {
         let mut queue = self.received_queue.lock().unwrap();
         queue.pop_front()
     }
+
+    /// Adds a seed address to the set of received addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - A `SocketAddr` to be added to the set of received addresses.
+    pub fn seed(&self, addr: SocketAddr) {
+        let mut received_from = self.received_from.lock().unwrap();
+        received_from.insert(addr);
+    }
 }
 
 impl SlowJunction {
