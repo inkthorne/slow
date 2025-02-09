@@ -1,20 +1,22 @@
-use std::net::UdpSocket;
+use std::net::{UdpSocket, SocketAddr};
 use serde_json::Value;
+use rand::Rng;
 
-/// Listens for UDP packets on the specified port.
+pub struct SlowPacket {
+    pub addr: SocketAddr,
+    pub json: Value,
+}
+
+/// Listens for a single UDP packet on the specified port and returns the packet details.
 /// 
 /// # Arguments
 /// 
-/// * `port` - A u16 that specifies the port number to bind to.
-/// * `callback` - A function to be called when a packet is received.
+/// * `socket` - A reference to a `UdpSocket`.
 /// 
-/// This function does not return a value.
-pub fn listen_for_udp_packets<F>(port: u16, callback: F)
-where
-    F: Fn(&Value) + Send + 'static,
-{
-    let address = format!("localhost:{}", port);
-    let socket = UdpSocket::bind(&address).expect("Couldn't bind to address");
+/// # Returns
+/// 
+/// * `Option<SlowPacket>` - The packet details if the packet is valid and contains the key 'slow' with value '0.1', otherwise None.
+pub fn listen_for_slow_packet(socket: &UdpSocket) -> Option<SlowPacket> {
     let mut buf = [0; 1024];
     loop {
         let (amt, src) = socket.recv_from(&mut buf).expect("Didn't receive data");
@@ -22,8 +24,12 @@ where
         match serde_json::from_slice::<Value>(data) {
             Ok(json) => {
                 if let Some(slow) = json.get("slow") {
-                    if slow == "1.0" {
-                        callback(&json);
+                    if slow == "0.1" {
+                        println!("Received packet from {}:{}", src.ip(), src.port());
+                        return Some(SlowPacket {
+                            addr: src,
+                            json,
+                        });
                     } else {
                         println!("Rejected packet from {}: {:?}", src, json);
                     }
@@ -32,13 +38,16 @@ where
                 }
             }
             Err(_) => {
-                println!("Ignored invalid JSON packet from {}", src);
+                // Silently ignore invalid JSON
             }
         }
     }
 }
 
-pub fn send_udp_packet(json_message: &str) {
-    let socket = UdpSocket::bind("localhost:5432").expect("Couldn't bind to address");
-    socket.send_to(json_message.as_bytes(), "localhost:2345").expect("Couldn't send data");
+pub fn send_udp_packet(json_message: &str, addr: SocketAddr) {
+    let mut rng = rand::thread_rng();
+    let bind_port: u16 = rng.gen_range(1024..65535);
+    let bind_address = format!("localhost:{}", bind_port);
+    let socket = UdpSocket::bind(&bind_address).expect("Couldn't bind to address");
+    socket.send_to(json_message.as_bytes(), &addr).expect("Couldn't send data");
 }
