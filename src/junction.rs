@@ -8,6 +8,7 @@ pub struct SlowJunction {
     connection: JsonConnection,
     received_from: HashSet<SocketAddr>,
     send_queue: Arc<Mutex<VecDeque<Value>>>,
+    received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
 }
 
 impl SlowJunction {
@@ -26,10 +27,11 @@ impl SlowJunction {
             connection,
             received_from: HashSet::new(),
             send_queue: Arc::new(Mutex::new(VecDeque::new())),
+            received_queue: Arc::new(Mutex::new(VecDeque::new())),
         })
     }
 
-    pub fn update(&mut self) {
+    fn update(&mut self) {
         while let Some(json_packet) = self.connection.recv() {
             self.on_packet_received(json_packet);
         }
@@ -55,7 +57,7 @@ impl SlowJunction {
         }
     }
 
-    pub fn queue_json(&self, json: Value) {
+    pub fn send(&self, json: Value) {
         let mut queue = self.send_queue.lock().unwrap();
         queue.push_back(json);
     }
@@ -63,6 +65,10 @@ impl SlowJunction {
     fn on_packet_received(&mut self, json_packet: JsonPacket) {
         println!("Received JSON: {:?}", json_packet.json);
         self.received_from.insert(json_packet.addr);
+        {
+            let mut queue = self.received_queue.lock().unwrap();
+            queue.push_back(json_packet);
+        }
         self.dump_addresses();
     }
 }
