@@ -1,6 +1,5 @@
 use rand::Rng;
 use serde_json::json;
-use serde_json::Value;
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
@@ -12,7 +11,7 @@ fn main() {
     let addr: SocketAddr = "[::1]:2345".parse().expect("Invalid address");
     let mut junction = junction::SlowJunction::new(addr).expect("Couldn't create SlowJunction");
     thread::spawn(move || {
-        junction.run(on_packet_received);
+        junction.run();
     });
 
     thread::spawn(|| {
@@ -40,8 +39,4 @@ fn main() {
     loop {
         thread::sleep(Duration::from_secs(5)); // Add delay of 5 seconds
     }
-}
-
-fn on_packet_received(json: &Value) {
-    println!("Callback received JSON: {:?}", json);
 }
