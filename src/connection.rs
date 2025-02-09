@@ -5,30 +5,39 @@ use std::net::SocketAddr;
 
 pub struct SlowConnection {
     received_from: HashSet<SocketAddr>,
+    connection: JsonConnection, // Added connection as a member
 }
 
 impl SlowConnection {
-    pub fn new() -> Self {
-        Self {
+    /// Creates a new `SlowConnection` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `port` - A u16 that specifies the port number to bind to.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowConnection` or an error.
+    pub fn new(port: u16) -> std::io::Result<Self> {
+        Ok(Self {
             received_from: HashSet::new(),
-        }
+            connection: JsonConnection::new(port)?, // Initialize connection
+        })
     }
 
     /// Listens for UDP packets on the specified port.
     ///
     /// # Arguments
     ///
-    /// * `port` - A u16 that specifies the port number to bind to.
     /// * `callback` - A function to be called when a packet is received.
     ///
     /// This function does not return a value.
-    pub fn listen<F>(&mut self, port: u16, callback: F)
+    pub fn listen<F>(&mut self, callback: F)
     where
         F: Fn(&Value) + Send + 'static,
     {
-        let connection = JsonConnection::new(port).expect("Couldn't bind to address");
         loop {
-            match connection.recv() {
+            match self.connection.recv() {
                 Some(JsonPacket { addr, json }) => {
                     self.received_from.insert(addr);
                     callback(&json);
