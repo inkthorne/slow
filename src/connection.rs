@@ -1,5 +1,5 @@
+use crate::json_connection::{JsonConnection, JsonPacket};
 use serde_json::Value;
-use crate::udp;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 
@@ -15,24 +15,29 @@ impl SlowConnection {
     }
 
     /// Listens for UDP packets on the specified port.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `port` - A u16 that specifies the port number to bind to.
     /// * `callback` - A function to be called when a packet is received.
-    /// 
+    ///
     /// This function does not return a value.
     pub fn listen<F>(&mut self, port: u16, callback: F)
     where
         F: Fn(&Value) + Send + 'static,
     {
-        let address = format!("localhost:{}", port);
-        let socket = std::net::UdpSocket::bind(&address).expect("Couldn't bind to address");
+        let connection = JsonConnection::new(port).expect("Couldn't bind to address");
         loop {
-            if let Some(packet) = udp::listen_for_slow_packet(&socket) {
-                self.received_from.insert(packet.addr);
-                callback(&packet.json);
-                self.dump_addresses();
+            match connection.recv() {
+                Some(JsonPacket { addr, json }) => {
+                    self.received_from.insert(addr);
+                    callback(&json);
+                    self.dump_addresses();
+                }
+                None => {
+                    // No packet received, continue listening
+                    continue;
+                }
             }
         }
     }

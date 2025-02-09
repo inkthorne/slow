@@ -1,10 +1,11 @@
-use std::thread;
-use std::time::Duration;
-use std::net::SocketAddr;
 use serde_json::json;
 use serde_json::Value;
-mod udp;
+use std::net::SocketAddr;
+use std::thread;
+use std::time::Duration;
 mod connection;
+mod json_connection;
+mod udp;
 
 fn main() {
     println!("Hello, world!");
@@ -19,8 +20,9 @@ fn main() {
             let json_message = json!({
                 "message": "Hello from sender!",
                 "slow": "0.1"
-            }).to_string();
-            udp::send_udp_packet(&json_message, addr);
+            })
+            .to_string();
+            udp::send_json_packet(&json_message, addr).expect("Failed to send JSON packet");
             thread::sleep(Duration::from_secs(1));
         }
     });
