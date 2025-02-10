@@ -9,6 +9,7 @@ pub struct SlowJunction {
     received_from: Arc<Mutex<HashSet<SocketAddr>>>,
     send_queue: Arc<Mutex<VecDeque<Value>>>,
     received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
+    addr: SocketAddr, // Add addr field
 }
 
 impl SlowJunction {
@@ -28,6 +29,7 @@ impl SlowJunction {
             received_from: Arc::new(Mutex::new(HashSet::new())),
             send_queue: Arc::new(Mutex::new(VecDeque::new())),
             received_queue: Arc::new(Mutex::new(VecDeque::new())),
+            addr, // Initialize addr field
         });
 
         let junction_clone = Arc::clone(&junction);
@@ -74,6 +76,26 @@ impl SlowJunction {
         let mut received_from = self.received_from.lock().unwrap();
         received_from.insert(addr);
     }
+
+    /// Returns the `SocketAddr` of the `SlowJunction`.
+    pub fn get_address(&self) -> SocketAddr {
+        self.addr
+    }
+
+    /// Forwards a JSON packet to all peers except the sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `packet` - A reference to a `JsonPacket` to be forwarded.
+    pub fn forward(&self, packet: &JsonPacket) {
+        let sender_addr = packet.addr;
+        let received_from = self.received_from.lock().unwrap();
+        for addr in received_from.iter() {
+            if *addr != sender_addr {
+                self.connection.send(&addr.to_string(), &packet.json).expect("Failed to forward JSON packet");
+            }
+        }
+    }
 }
 
 impl SlowJunction {
@@ -98,6 +120,7 @@ impl SlowJunction {
     }
 
     fn on_packet_received(&self, json_packet: JsonPacket) {
+        self.forward(&json_packet);
         {
             let mut received_from = self.received_from.lock().unwrap();
             received_from.insert(json_packet.addr);
