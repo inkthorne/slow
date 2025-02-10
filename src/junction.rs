@@ -81,24 +81,10 @@ impl SlowJunction {
     pub fn get_address(&self) -> SocketAddr {
         self.addr
     }
-
-    /// Forwards a JSON packet to all peers except the sender.
-    ///
-    /// # Arguments
-    ///
-    /// * `packet` - A reference to a `JsonPacket` to be forwarded.
-    pub fn forward(&self, packet: &JsonPacket) {
-        let sender_addr = packet.addr;
-        let known_junctions = self.known_junctions.lock().unwrap();
-        for addr in known_junctions.iter() {
-            if *addr != sender_addr {
-                self.connection.send(&addr.to_string(), &packet.json).expect("Failed to forward JSON packet");
-            }
-        }
-    }
 }
 
 impl SlowJunction {
+    /// Updates the state of the `SlowJunction` by processing received packets and sending queued JSON values.
     fn update(&self) {
         while let Some(json_packet) = self.connection.recv() {
             self.on_packet_received(json_packet);
@@ -112,6 +98,7 @@ impl SlowJunction {
         }
     }
 
+    /// Runs the main loop of the `SlowJunction`, periodically calling `update`.
     fn run(&self) {
         loop {
             self.update();
@@ -119,6 +106,11 @@ impl SlowJunction {
         }
     }
 
+    /// Handles a received JSON packet by forwarding it and updating the known junctions and received queue.
+    ///
+    /// # Arguments
+    ///
+    /// * `json_packet` - A `JsonPacket` that was received.
     fn on_packet_received(&self, json_packet: JsonPacket) {
         self.forward(&json_packet);
         {
@@ -128,6 +120,21 @@ impl SlowJunction {
         {
             let mut queue = self.received_queue.lock().unwrap();
             queue.push_back(json_packet);
+        }
+    }
+
+    /// Forwards a JSON packet to all peers except the sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `packet` - A reference to a `JsonPacket` to be forwarded.
+    fn forward(&self, packet: &JsonPacket) {
+        let sender_addr = packet.addr;
+        let known_junctions = self.known_junctions.lock().unwrap();
+        for addr in known_junctions.iter() {
+            if *addr != sender_addr {
+                self.connection.send(&addr.to_string(), &packet.json).expect("Failed to forward JSON packet");
+            }
         }
     }
 }
