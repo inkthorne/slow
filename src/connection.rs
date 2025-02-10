@@ -8,12 +8,12 @@ pub struct JsonPacket {
     pub json: Value,
 }
 
-pub struct JsonConnection {
+pub struct SlowConnection {
     socket: UdpSocket,
 }
 
-impl JsonConnection {
-    /// Creates a new `JsonConnection` instance.
+impl SlowConnection {
+    /// Creates a new `SlowConnection` instance.
     ///
     /// # Arguments
     ///
@@ -21,11 +21,11 @@ impl JsonConnection {
     ///
     /// # Returns
     ///
-    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `JsonConnection` or an error.
+    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowConnection` or an error.
     pub fn new(addr: SocketAddr) -> std::io::Result<Self> {
         let socket = UdpSocket::bind(addr)?;
         socket.set_nonblocking(true)?;
-        Ok(JsonConnection { socket })
+        Ok(SlowConnection { socket })
     }
 
     /// Sends a JSON value to the specified address.

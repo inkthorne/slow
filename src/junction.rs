@@ -1,4 +1,4 @@
-use crate::connection::{JsonConnection, JsonPacket};
+use crate::connection::{JsonPacket, SlowConnection};
 use crate::datagram::SlowDatagram;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 pub struct SlowJunction {
-    connection: JsonConnection,
+    connection: SlowConnection,
     known_junctions: Arc<Mutex<HashSet<SocketAddr>>>,
     send_queue: Arc<Mutex<VecDeque<Value>>>,
     received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
@@ -24,7 +24,7 @@ impl SlowJunction {
     ///
     /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
     pub fn new(addr: SocketAddr) -> std::io::Result<Arc<Self>> {
-        let connection = JsonConnection::new(addr)?;
+        let connection = SlowConnection::new(addr)?;
         let junction = Arc::new(Self {
             connection,
             known_junctions: Arc::new(Mutex::new(HashSet::new())),
