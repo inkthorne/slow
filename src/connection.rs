@@ -45,25 +45,33 @@ impl JsonConnection {
         Ok(())
     }
 
-    /// Receives a JSON packet from the socket.
+    /// Sends a `SlowDatagram` to the specified address.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - A reference to the `SocketAddr` of the recipient.
+    /// * `datagram` - A reference to the `SlowDatagram` to send.
     ///
     /// # Returns
     ///
-    /// * `Option<JsonPacket>` - An option containing the received JSON packet or `None` if no packet is available.
-    pub fn recv(&self) -> Option<JsonPacket> {
+    /// * `Result<(), std::io::Error>` - A result indicating success or an error.
+    pub fn send_datagram(&self, addr: &SocketAddr, datagram: &SlowDatagram) -> std::io::Result<()> {
+        let packaged_data = datagram.package();
+        self.socket.send_to(&packaged_data, addr)?;
+        Ok(())
+    }
+
+    /// Receives a datagram from the socket.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<SlowDatagram>` - An option containing the received datagram or `None` if no datagram is available.
+    pub fn recv(&self) -> Option<SlowDatagram> {
         let mut buf = [0; 1024];
         match self.socket.recv_from(&mut buf) {
-            Ok((amt, src)) => {
+            Ok((amt, _src)) => {
                 let datagram = &buf[..amt];
-                if let Some(slow_datagram) = SlowDatagram::unpackage(datagram) {
-                    if let Some(json) = slow_datagram.get_json() {
-                        Some(JsonPacket { addr: src, json })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                SlowDatagram::unpackage(datagram)
             }
             Err(ref e) if e.kind() == ErrorKind::WouldBlock => None,
             Err(_) => None,

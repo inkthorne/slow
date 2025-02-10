@@ -1,4 +1,5 @@
 use crate::connection::{JsonConnection, JsonPacket};
+use crate::datagram::SlowDatagram;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
@@ -86,8 +87,8 @@ impl SlowJunction {
 impl SlowJunction {
     /// Updates the state of the `SlowJunction` by processing received packets and sending queued JSON values.
     fn update(&self) {
-        while let Some(json_packet) = self.connection.recv() {
-            self.on_packet_received(json_packet);
+        while let Some(slow_datagram) = self.connection.recv() {
+            self.on_packet_received(slow_datagram);
         }
 
         let mut queue = self.send_queue.lock().unwrap();
@@ -108,36 +109,42 @@ impl SlowJunction {
         }
     }
 
-    /// Handles a received JSON packet by forwarding it and updating the known junctions and received queue.
+    /// Handles a received datagram by forwarding it and updating the known junctions and received queue.
     ///
     /// # Arguments
     ///
-    /// * `json_packet` - A `JsonPacket` that was received.
-    fn on_packet_received(&self, json_packet: JsonPacket) {
-        self.forward(&json_packet);
-        {
-            let mut known_junctions = self.known_junctions.lock().unwrap();
-            known_junctions.insert(json_packet.addr);
-        }
-        {
-            let mut queue = self.received_queue.lock().unwrap();
-            queue.push_back(json_packet);
+    /// * `slow_datagram` - A `SlowDatagram` that was received.
+    fn on_packet_received(&self, slow_datagram: SlowDatagram) {
+        self.forward(&slow_datagram);
+        if let Some(json) = slow_datagram.get_json() {
+            let json_packet = JsonPacket {
+                addr: self.addr,
+                json,
+            };
+            {
+                let mut known_junctions = self.known_junctions.lock().unwrap();
+                known_junctions.insert(json_packet.addr);
+            }
+            {
+                let mut queue = self.received_queue.lock().unwrap();
+                queue.push_back(json_packet);
+            }
         }
     }
 
-    /// Forwards a JSON packet to all peers except the sender.
+    /// Forwards a `SlowDatagram` to all peers except the sender.
     ///
     /// # Arguments
     ///
-    /// * `packet` - A reference to a `JsonPacket` to be forwarded.
-    fn forward(&self, packet: &JsonPacket) {
-        let sender_addr = packet.addr;
+    /// * `datagram` - A reference to a `SlowDatagram` to be forwarded.
+    fn forward(&self, datagram: &SlowDatagram) {
+        let sender_addr = self.addr;
         let known_junctions = self.known_junctions.lock().unwrap();
         for addr in known_junctions.iter() {
             if *addr != sender_addr {
                 self.connection
-                    .send(addr, &packet.json)
-                    .expect("Failed to forward JSON packet");
+                    .send_datagram(addr, datagram)
+                    .expect("Failed to forward datagram");
             }
         }
     }
