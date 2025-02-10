@@ -6,7 +6,7 @@ use serde_json::Value;
 
 pub struct SlowJunction {
     connection: JsonConnection,
-    received_from: Arc<Mutex<HashSet<SocketAddr>>>,
+    known_junctions: Arc<Mutex<HashSet<SocketAddr>>>,
     send_queue: Arc<Mutex<VecDeque<Value>>>,
     received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
     addr: SocketAddr, // Add addr field
@@ -26,7 +26,7 @@ impl SlowJunction {
         let connection = JsonConnection::new(addr)?;
         let junction = Arc::new(Self {
             connection,
-            received_from: Arc::new(Mutex::new(HashSet::new())),
+            known_junctions: Arc::new(Mutex::new(HashSet::new())),
             send_queue: Arc::new(Mutex::new(VecDeque::new())),
             received_queue: Arc::new(Mutex::new(VecDeque::new())),
             addr, // Initialize addr field
@@ -40,9 +40,9 @@ impl SlowJunction {
         Ok(junction)
     }
 
-    /// Dumps the addresses of all peers that have sent packets to the `SlowJunction`.
-    pub fn dump_addresses(&self) {
-        for addr in self.received_from.lock().unwrap().iter() {
+    /// Prints the addresses of all peers that have sent packets to the `SlowJunction`.
+    pub fn print_known_junctions(&self) {
+        for addr in self.known_junctions.lock().unwrap().iter() {
             println!("{}", addr);
         }
     }
@@ -73,8 +73,8 @@ impl SlowJunction {
     ///
     /// * `addr` - A `SocketAddr` to be added to the set of received addresses.
     pub fn seed(&self, addr: SocketAddr) {
-        let mut received_from = self.received_from.lock().unwrap();
-        received_from.insert(addr);
+        let mut known_junctions = self.known_junctions.lock().unwrap();
+        known_junctions.insert(addr);
     }
 
     /// Returns the `SocketAddr` of the `SlowJunction`.
@@ -89,8 +89,8 @@ impl SlowJunction {
     /// * `packet` - A reference to a `JsonPacket` to be forwarded.
     pub fn forward(&self, packet: &JsonPacket) {
         let sender_addr = packet.addr;
-        let received_from = self.received_from.lock().unwrap();
-        for addr in received_from.iter() {
+        let known_junctions = self.known_junctions.lock().unwrap();
+        for addr in known_junctions.iter() {
             if *addr != sender_addr {
                 self.connection.send(&addr.to_string(), &packet.json).expect("Failed to forward JSON packet");
             }
@@ -106,7 +106,7 @@ impl SlowJunction {
 
         let mut queue = self.send_queue.lock().unwrap();
         while let Some(json) = queue.pop_front() {
-            for addr in self.received_from.lock().unwrap().iter() {
+            for addr in self.known_junctions.lock().unwrap().iter() {
                 self.connection.send(&addr.to_string(), &json).expect("Failed to send JSON packet");
             }
         }
@@ -122,8 +122,8 @@ impl SlowJunction {
     fn on_packet_received(&self, json_packet: JsonPacket) {
         self.forward(&json_packet);
         {
-            let mut received_from = self.received_from.lock().unwrap();
-            received_from.insert(json_packet.addr);
+            let mut known_junctions = self.known_junctions.lock().unwrap();
+            known_junctions.insert(json_packet.addr);
         }
         {
             let mut queue = self.received_queue.lock().unwrap();
