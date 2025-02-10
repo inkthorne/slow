@@ -1,8 +1,8 @@
 use crate::connection::{JsonConnection, JsonPacket};
+use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use serde_json::Value;
 
 pub struct SlowJunction {
     connection: JsonConnection,
@@ -93,7 +93,9 @@ impl SlowJunction {
         let mut queue = self.send_queue.lock().unwrap();
         while let Some(json) = queue.pop_front() {
             for addr in self.known_junctions.lock().unwrap().iter() {
-                self.connection.send(&addr.to_string(), &json).expect("Failed to send JSON packet");
+                self.connection
+                    .send(addr, &json)
+                    .expect("Failed to send JSON packet");
             }
         }
     }
@@ -133,7 +135,9 @@ impl SlowJunction {
         let known_junctions = self.known_junctions.lock().unwrap();
         for addr in known_junctions.iter() {
             if *addr != sender_addr {
-                self.connection.send(&addr.to_string(), &packet.json).expect("Failed to forward JSON packet");
+                self.connection
+                    .send(addr, &packet.json)
+                    .expect("Failed to forward JSON packet");
             }
         }
     }

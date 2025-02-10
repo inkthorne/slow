@@ -3,21 +3,25 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 mod connection;
+pub mod datagram;
 pub mod junction;
 
 fn main() {
     println!("Hello, world!");
     let junction1_addr: SocketAddr = "[::1]:2222".parse().expect("Invalid address");
-    let junction1 = junction::SlowJunction::new(junction1_addr).expect("Couldn't create SlowJunction");
+    let junction1 =
+        junction::SlowJunction::new(junction1_addr).expect("Couldn't create SlowJunction");
 
     // Create a second junction and seed it with the first junction's address
     let junction2_addr: SocketAddr = "[::1]:3333".parse().expect("Invalid address");
-    let junction2 = junction::SlowJunction::new(junction2_addr).expect("Couldn't create SlowJunction");
+    let junction2 =
+        junction::SlowJunction::new(junction2_addr).expect("Couldn't create SlowJunction");
     junction1.seed(junction2_addr);
 
     // Create a third junction with port 4444
     let junction3_addr: SocketAddr = "[::1]:4444".parse().expect("Invalid address");
-    let junction3 = junction::SlowJunction::new(junction3_addr).expect("Couldn't create SlowJunction");
+    let junction3 =
+        junction::SlowJunction::new(junction3_addr).expect("Couldn't create SlowJunction");
     junction2.seed(junction3_addr);
     junction3.seed(junction1_addr);
 
