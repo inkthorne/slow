@@ -87,8 +87,8 @@ impl SlowJunction {
 impl SlowJunction {
     /// Updates the state of the `SlowJunction` by processing received packets and sending queued JSON values.
     fn update(&self) {
-        while let Some(slow_datagram) = self.connection.recv() {
-            self.on_packet_received(slow_datagram);
+        while let Some((slow_datagram, sender_addr)) = self.connection.recv() {
+            self.on_packet_received(slow_datagram, sender_addr);
         }
 
         let mut queue = self.send_queue.lock().unwrap();
@@ -114,13 +114,13 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `slow_datagram` - A `SlowDatagram` that was received.
-    fn on_packet_received(&self, mut slow_datagram: SlowDatagram) {
+    fn on_packet_received(&self, mut slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
         if slow_datagram.decrement_hops() {
-            self.forward(&slow_datagram);
+            self.forward(&slow_datagram, sender_addr);
         }
         if let Some(json) = slow_datagram.get_json() {
             let json_packet = JsonPacket {
-                addr: self.addr,
+                addr: sender_addr,
                 json,
             };
             {
@@ -139,8 +139,8 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `datagram` - A reference to a `SlowDatagram` to be forwarded.
-    fn forward(&self, datagram: &SlowDatagram) {
-        let sender_addr = self.addr;
+    /// * `sender_addr` - The `SocketAddr` of the sender.
+    fn forward(&self, datagram: &SlowDatagram, sender_addr: SocketAddr) {
         let known_junctions = self.known_junctions.lock().unwrap();
         for addr in known_junctions.iter() {
             if *addr != sender_addr {

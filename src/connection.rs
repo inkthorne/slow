@@ -65,13 +65,13 @@ impl SlowConnection {
     ///
     /// # Returns
     ///
-    /// * `Option<SlowDatagram>` - An option containing the received datagram or `None` if no datagram is available.
-    pub fn recv(&self) -> Option<SlowDatagram> {
+    /// * `Option<(SlowDatagram, SocketAddr)>` - An option containing the received datagram and the source address or `None` if no datagram is available.
+    pub fn recv(&self) -> Option<(SlowDatagram, SocketAddr)> {
         let mut buf = [0; 1024];
         match self.socket.recv_from(&mut buf) {
-            Ok((amt, _src)) => {
+            Ok((amt, src)) => {
                 let datagram = &buf[..amt];
-                SlowDatagram::unpackage(datagram)
+                SlowDatagram::unpackage(datagram).map(|d| (d, src))
             }
             Err(ref e) if e.kind() == ErrorKind::WouldBlock => None,
             Err(_) => None,
