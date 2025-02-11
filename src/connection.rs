@@ -78,3 +78,51 @@ impl SlowConnection {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::net::{SocketAddr, UdpSocket};
+
+    #[test]
+    fn test_new_connection() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let connection = SlowConnection::new(addr);
+        assert!(connection.is_ok());
+    }
+
+    #[test]
+    fn test_send_json() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let connection = SlowConnection::new(addr).unwrap();
+        let target_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let json_value = json!({"key": "value"});
+        let result = connection.send(&target_addr, &json_value);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_send_datagram() {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let connection = SlowConnection::new(addr).unwrap();
+        let target_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let datagram = SlowDatagram::new(target_addr.port(), &json!({"key": "value"})).unwrap();
+        let result = connection.send_datagram(&target_addr, &datagram);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_recv() {
+        let addr1: SocketAddr = "127.0.0.1:1111".parse().unwrap();
+        let addr2: SocketAddr = "127.0.0.1:2222".parse().unwrap();
+        let connection1 = SlowConnection::new(addr1).unwrap();
+        let connection2 = SlowConnection::new(addr2).unwrap();
+        let target_addr: SocketAddr = connection2.socket.local_addr().unwrap();
+        let datagram = SlowDatagram::new(target_addr.port(), &json!({"key": "value"})).unwrap();
+        connection1.send_datagram(&target_addr, &datagram).unwrap();
+
+        let received = connection2.recv();
+        assert!(received.is_some());
+    }
+}
