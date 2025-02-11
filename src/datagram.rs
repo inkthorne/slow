@@ -4,14 +4,14 @@ use serde_json::Value;
 
 #[derive(Serialize, Deserialize)]
 pub struct SlowDatagramHeader {
-    pub to: u16,
+    pub addressee_id: u16,
     pub hops_remaining: u16,
-    pub size: u16,
+    pub payload_size: u16,
 }
 
 pub struct SlowDatagram {
     pub header: SlowDatagramHeader,
-    pub data: Vec<u8>,
+    pub payload: Vec<u8>,
 }
 
 impl SlowDatagram {
@@ -19,20 +19,20 @@ impl SlowDatagram {
     ///
     /// # Arguments
     ///
-    /// * `to` - A `u16` representing the recipient.
+    /// * `addressee_id` - A `u16` representing the recipient.
     /// * `json` - A reference to a `Value` representing the JSON data.
     ///
     /// # Returns
     ///
     /// * `Option<Self>` - An optional `SlowDatagram` instance.
-    pub fn new(to: u16, json: &Value) -> Option<Self> {
-        let data = serde_json::to_vec(json).ok()?;
+    pub fn new(addressee_id: u16, json: &Value) -> Option<Self> {
+        let payload = serde_json::to_vec(json).ok()?;
         let header = SlowDatagramHeader {
-            to,
+            addressee_id,
             hops_remaining: 4,
-            size: data.len() as u16,
+            payload_size: payload.len() as u16,
         };
-        Some(SlowDatagram { header, data })
+        Some(SlowDatagram { header, payload })
     }
 
     /// Peeks at the header of a byte slice.
@@ -62,10 +62,10 @@ impl SlowDatagram {
         let header_data = &data[..std::mem::size_of::<SlowDatagramHeader>()];
         let header: SlowDatagramHeader = bincode::deserialize(header_data).ok()?;
         let json_data = &data[std::mem::size_of::<SlowDatagramHeader>()..];
-        if header.size as usize == json_data.len() {
+        if header.payload_size as usize == json_data.len() {
             Some(SlowDatagram {
                 header,
-                data: json_data.to_vec(),
+                payload: json_data.to_vec(),
             })
         } else {
             None
@@ -81,23 +81,23 @@ impl SlowDatagram {
         let header_data = bincode::serialize(&self.header).unwrap();
         let mut package = Vec::new();
         package.extend_from_slice(&header_data);
-        package.extend_from_slice(&self.data);
+        package.extend_from_slice(&self.payload);
         package
     }
 
-    /// Returns the `data` as a JSON value.
+    /// Returns the `payload` as a JSON value.
     ///
     /// # Returns
     ///
     /// * `Option<Value>` - An optional `Value` representing the JSON data.
     pub fn get_json(&self) -> Option<Value> {
-        serde_json::from_slice(&self.data).ok()
+        serde_json::from_slice(&self.payload).ok()
     }
 
     /// Decrements the `hops_remaining` field by 1.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// * `bool` - `true` if there are hops remaining, `false` otherwise.
     pub fn decrement_hops(&mut self) -> bool {
         if self.header.hops_remaining > 0 {
@@ -116,9 +116,9 @@ mod tests {
     fn test_new() {
         let json_data = json!({"key": "value"});
         let datagram = SlowDatagram::new(1, &json_data).unwrap();
-        assert_eq!(datagram.header.to, 1);
+        assert_eq!(datagram.header.addressee_id, 1);
         assert_eq!(
-            datagram.header.size,
+            datagram.header.payload_size,
             serde_json::to_vec(&json_data).unwrap().len() as u16
         );
         assert_eq!(datagram.get_json().unwrap(), json_data);
@@ -130,9 +130,9 @@ mod tests {
         let datagram = SlowDatagram::new(1, &json_data).unwrap();
         let packaged_data = datagram.package();
         let header = SlowDatagram::peek_header(&packaged_data).unwrap();
-        assert_eq!(header.to, 1);
+        assert_eq!(header.addressee_id, 1);
         assert_eq!(
-            header.size,
+            header.payload_size,
             serde_json::to_vec(&json_data).unwrap().len() as u16
         );
     }
@@ -143,9 +143,9 @@ mod tests {
         let datagram = SlowDatagram::new(1, &json_data).unwrap();
         let packaged_data = datagram.package();
         let unpackaged_datagram = SlowDatagram::unpackage(&packaged_data).unwrap();
-        assert_eq!(unpackaged_datagram.header.to, 1);
+        assert_eq!(unpackaged_datagram.header.addressee_id, 1);
         assert_eq!(
-            unpackaged_datagram.header.size,
+            unpackaged_datagram.header.payload_size,
             serde_json::to_vec(&json_data).unwrap().len() as u16
         );
         assert_eq!(unpackaged_datagram.get_json().unwrap(), json_data);
@@ -161,7 +161,7 @@ mod tests {
             &packaged_data[..header_size],
             &bincode::serialize(&datagram.header).unwrap()[..]
         );
-        assert_eq!(&packaged_data[header_size..], &datagram.data[..]);
+        assert_eq!(&packaged_data[header_size..], &datagram.payload[..]);
     }
 
     #[test]
