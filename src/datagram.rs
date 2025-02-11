@@ -5,6 +5,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize)]
 pub struct SlowDatagramHeader {
     pub to: u16,
+    pub hops_remaining: u16,
     pub size: u16,
 }
 
@@ -28,6 +29,7 @@ impl SlowDatagram {
         let data = serde_json::to_vec(json).ok()?;
         let header = SlowDatagramHeader {
             to,
+            hops_remaining: 4,
             size: data.len() as u16,
         };
         Some(SlowDatagram { header, data })
@@ -69,9 +71,7 @@ impl SlowDatagram {
             None
         }
     }
-}
 
-impl SlowDatagram {
     /// Packages the `SlowDatagram` into a byte vector.
     ///
     /// # Returns
@@ -92,6 +92,18 @@ impl SlowDatagram {
     /// * `Option<Value>` - An optional `Value` representing the JSON data.
     pub fn get_json(&self) -> Option<Value> {
         serde_json::from_slice(&self.data).ok()
+    }
+
+    /// Decrements the `hops_remaining` field by 1.
+    /// 
+    /// # Returns
+    /// 
+    /// * `bool` - `true` if there are hops remaining, `false` otherwise.
+    pub fn decrement_hops(&mut self) -> bool {
+        if self.header.hops_remaining > 0 {
+            self.header.hops_remaining -= 1;
+        }
+        self.header.hops_remaining > 0
     }
 }
 
@@ -157,5 +169,21 @@ mod tests {
         let json_data = json!({"key": "value"});
         let datagram = SlowDatagram::new(1, &json_data).unwrap();
         assert_eq!(datagram.get_json().unwrap(), json_data);
+    }
+
+    #[test]
+    fn test_decrement_hops() {
+        let json_data = json!({"key": "value"});
+        let mut datagram = SlowDatagram::new(1, &json_data).unwrap();
+        assert_eq!(datagram.header.hops_remaining, 4);
+        assert!(datagram.decrement_hops());
+        assert_eq!(datagram.header.hops_remaining, 3);
+        assert!(datagram.decrement_hops());
+        assert_eq!(datagram.header.hops_remaining, 2);
+        assert!(datagram.decrement_hops());
+        assert_eq!(datagram.header.hops_remaining, 1);
+        assert!(!datagram.decrement_hops());
+        assert_eq!(datagram.header.hops_remaining, 0);
+        assert!(!datagram.decrement_hops());
     }
 }

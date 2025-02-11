@@ -114,8 +114,10 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `slow_datagram` - A `SlowDatagram` that was received.
-    fn on_packet_received(&self, slow_datagram: SlowDatagram) {
-        self.forward(&slow_datagram);
+    fn on_packet_received(&self, mut slow_datagram: SlowDatagram) {
+        if slow_datagram.decrement_hops() {
+            self.forward(&slow_datagram);
+        }
         if let Some(json) = slow_datagram.get_json() {
             let json_packet = JsonPacket {
                 addr: self.addr,
