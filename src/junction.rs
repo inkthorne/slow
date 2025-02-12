@@ -119,11 +119,9 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `slow_datagram` - A `SlowDatagram` that was received.
-    fn on_packet_received(&self, mut slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
-        if slow_datagram.decrement_hops() {
-            self.forward(&slow_datagram, sender_addr);
-        }
+    fn on_packet_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
         if slow_datagram.get_recipient_id() != self.recipient_id {
+            self.forward(slow_datagram, sender_addr);
             return;
         }
         if let Some(json) = slow_datagram.get_json() {
@@ -146,14 +144,17 @@ impl SlowJunction {
     ///
     /// # Arguments
     ///
-    /// * `datagram` - A reference to a `SlowDatagram` to be forwarded.
+    /// * `datagram` - A `SlowDatagram` to be forwarded.
     /// * `sender_addr` - The `SocketAddr` of the sender.
-    fn forward(&self, datagram: &SlowDatagram, sender_addr: SocketAddr) {
+    fn forward(&self, mut datagram: SlowDatagram, sender_addr: SocketAddr) {
+        if !datagram.decrement_hops() {
+            return;
+        }
         let known_junctions = self.known_junctions.lock().unwrap();
         for addr in known_junctions.iter() {
             if *addr != sender_addr {
                 self.connection
-                    .send_datagram(addr, datagram)
+                    .send_datagram(addr, &datagram)
                     .expect("Failed to forward datagram");
             }
         }
