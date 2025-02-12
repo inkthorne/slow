@@ -4,7 +4,7 @@ use serde_json::Value;
 
 #[derive(Serialize, Deserialize)]
 pub struct SlowDatagramHeader {
-    pub addressee_id: u16,
+    pub recipient_id: u16,
     pub hops_remaining: u16,
     pub payload_size: u16,
 }
@@ -19,16 +19,16 @@ impl SlowDatagram {
     ///
     /// # Arguments
     ///
-    /// * `addressee_id` - A `u16` representing the recipient.
+    /// * `recipient_id` - A `u16` representing the recipient.
     /// * `json` - A reference to a `Value` representing the JSON data.
     ///
     /// # Returns
     ///
     /// * `Option<Self>` - An optional `SlowDatagram` instance.
-    pub fn new(addressee_id: u16, json: &Value) -> Option<Self> {
+    pub fn new(recipient_id: u16, json: &Value) -> Option<Self> {
         let payload = serde_json::to_vec(json).ok()?;
         let header = SlowDatagramHeader {
-            addressee_id,
+            recipient_id,
             hops_remaining: 4,
             payload_size: payload.len() as u16,
         };
@@ -105,6 +105,15 @@ impl SlowDatagram {
         }
         self.header.hops_remaining > 0
     }
+
+    /// Returns the `recipient_id` from the header.
+    ///
+    /// # Returns
+    ///
+    /// * `u16` - The recipient ID.
+    pub fn get_recipient_id(&self) -> u16 {
+        self.header.recipient_id
+    }
 }
 
 #[cfg(test)]
@@ -116,7 +125,7 @@ mod tests {
     fn test_new() {
         let json_data = json!({"key": "value"});
         let datagram = SlowDatagram::new(1, &json_data).unwrap();
-        assert_eq!(datagram.header.addressee_id, 1);
+        assert_eq!(datagram.header.recipient_id, 1);
         assert_eq!(
             datagram.header.payload_size,
             serde_json::to_vec(&json_data).unwrap().len() as u16
@@ -130,7 +139,7 @@ mod tests {
         let datagram = SlowDatagram::new(1, &json_data).unwrap();
         let packaged_data = datagram.package();
         let header = SlowDatagram::peek_header(&packaged_data).unwrap();
-        assert_eq!(header.addressee_id, 1);
+        assert_eq!(header.recipient_id, 1);
         assert_eq!(
             header.payload_size,
             serde_json::to_vec(&json_data).unwrap().len() as u16
@@ -143,7 +152,7 @@ mod tests {
         let datagram = SlowDatagram::new(1, &json_data).unwrap();
         let packaged_data = datagram.package();
         let unpackaged_datagram = SlowDatagram::unpackage(&packaged_data).unwrap();
-        assert_eq!(unpackaged_datagram.header.addressee_id, 1);
+        assert_eq!(unpackaged_datagram.header.recipient_id, 1);
         assert_eq!(
             unpackaged_datagram.header.payload_size,
             serde_json::to_vec(&json_data).unwrap().len() as u16
@@ -185,5 +194,12 @@ mod tests {
         assert!(!datagram.decrement_hops());
         assert_eq!(datagram.header.hops_remaining, 0);
         assert!(!datagram.decrement_hops());
+    }
+
+    #[test]
+    fn test_get_recipient_id() {
+        let json_data = json!({"key": "value"});
+        let datagram = SlowDatagram::new(1, &json_data).unwrap();
+        assert_eq!(datagram.get_recipient_id(), 1);
     }
 }

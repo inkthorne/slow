@@ -29,23 +29,6 @@ impl SlowConnection {
         Ok(SlowConnection { socket })
     }
 
-    /// Sends a JSON value to the specified address.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - A reference to the `SocketAddr` of the recipient.
-    /// * `json` - A reference to the JSON value to send.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<(), std::io::Error>` - A result indicating success or an error.
-    pub fn send(&self, addr: &SocketAddr, json: &Value) -> std::io::Result<()> {
-        let datagram = SlowDatagram::new(addr.port(), json).unwrap();
-        let packaged_data = datagram.package();
-        self.socket.send_to(&packaged_data, addr)?;
-        Ok(())
-    }
-
     /// Sends a `SlowDatagram` to the specified address.
     ///
     /// # Arguments

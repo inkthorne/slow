@@ -8,9 +8,10 @@ use std::sync::{Arc, Mutex};
 pub struct SlowJunction {
     connection: SlowConnection,
     known_junctions: Arc<Mutex<HashSet<SocketAddr>>>,
-    send_queue: Arc<Mutex<VecDeque<Value>>>,
+    send_queue: Arc<Mutex<VecDeque<SlowDatagram>>>,
     received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
     addr: SocketAddr, // Add addr field
+    recipient_id: u16, // Add recipient_id field
 }
 
 impl SlowJunction {
@@ -19,11 +20,12 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `addr` - A `SocketAddr` that specifies the address to bind to.
+    /// * `recipient_id` - A `u16` representing the recipient ID.
     ///
     /// # Returns
     ///
     /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
-    pub fn new(addr: SocketAddr) -> std::io::Result<Arc<Self>> {
+    pub fn new(addr: SocketAddr, recipient_id: u16) -> std::io::Result<Arc<Self>> {
         let connection = SlowConnection::new(addr)?;
         let junction = Arc::new(Self {
             connection,
@@ -31,6 +33,7 @@ impl SlowJunction {
             send_queue: Arc::new(Mutex::new(VecDeque::new())),
             received_queue: Arc::new(Mutex::new(VecDeque::new())),
             addr, // Initialize addr field
+            recipient_id, // Initialize recipient_id field
         });
 
         let junction_clone = Arc::clone(&junction);
@@ -53,9 +56,11 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `json` - A `Value` representing the JSON data to be queued.
-    pub fn send(&self, json: Value) {
+    /// * `recipient_id` - A `u16` representing the recipient ID.
+    pub fn send(&self, json: Value, recipient_id: u16) {
         let mut queue = self.send_queue.lock().unwrap();
-        queue.push_back(json);
+        let datagram = SlowDatagram::new(recipient_id, &json).expect("Failed to create datagram");
+        queue.push_back(datagram);
     }
 
     /// Receives a JSON packet from the received queue.
@@ -92,11 +97,11 @@ impl SlowJunction {
         }
 
         let mut queue = self.send_queue.lock().unwrap();
-        while let Some(json) = queue.pop_front() {
+        while let Some(datagram) = queue.pop_front() {
             for addr in self.known_junctions.lock().unwrap().iter() {
                 self.connection
-                    .send(addr, &json)
-                    .expect("Failed to send JSON packet");
+                    .send_datagram(addr, &datagram)
+                    .expect("Failed to send datagram");
             }
         }
     }
@@ -117,6 +122,9 @@ impl SlowJunction {
     fn on_packet_received(&self, mut slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
         if slow_datagram.decrement_hops() {
             self.forward(&slow_datagram, sender_addr);
+        }
+        if slow_datagram.get_recipient_id() != self.recipient_id {
+            return;
         }
         if let Some(json) = slow_datagram.get_json() {
             let json_packet = JsonPacket {
@@ -159,7 +167,7 @@ mod tests {
 
     fn create_test_junction() -> Arc<SlowJunction> {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        SlowJunction::new(addr).expect("Failed to create test junction")
+        SlowJunction::new(addr, 1).expect("Failed to create test junction")
     }
 
     #[test]
@@ -174,9 +182,10 @@ mod tests {
     fn test_send() {
         let junction = create_test_junction();
         let json = serde_json::json!({"key": "value"});
-        junction.send(json.clone());
+        junction.send(json.clone(), 1);
         assert_eq!(junction.send_queue.lock().unwrap().len(), 1);
-        assert_eq!(junction.send_queue.lock().unwrap().pop_front().unwrap(), json);
+        let datagram = junction.send_queue.lock().unwrap().pop_front().unwrap();
+        assert_eq!(datagram.get_json().unwrap(), json);
     }
 
     #[test]
@@ -201,7 +210,7 @@ mod tests {
     #[test]
     fn test_get_address() {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let junction = SlowJunction::new(addr).expect("Failed to create test junction");
+        let junction = SlowJunction::new(addr, 1).expect("Failed to create test junction");
         assert_eq!(junction.get_address(), addr);
     }
 }
