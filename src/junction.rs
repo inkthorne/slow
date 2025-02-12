@@ -151,3 +151,57 @@ impl SlowJunction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn create_test_junction() -> Arc<SlowJunction> {
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        SlowJunction::new(addr).expect("Failed to create test junction")
+    }
+
+    #[test]
+    fn test_new_junction() {
+        let junction = create_test_junction();
+        assert_eq!(junction.known_junctions.lock().unwrap().len(), 0);
+        assert_eq!(junction.send_queue.lock().unwrap().len(), 0);
+        assert_eq!(junction.received_queue.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_send() {
+        let junction = create_test_junction();
+        let json = serde_json::json!({"key": "value"});
+        junction.send(json.clone());
+        assert_eq!(junction.send_queue.lock().unwrap().len(), 1);
+        assert_eq!(junction.send_queue.lock().unwrap().pop_front().unwrap(), json);
+    }
+
+    #[test]
+    fn test_recv() {
+        let junction = create_test_junction();
+        let json_packet = JsonPacket {
+            addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345),
+            json: serde_json::json!({"key": "value"}),
+        };
+        junction.received_queue.lock().unwrap().push_back(json_packet.clone());
+        assert_eq!(junction.recv().unwrap(), json_packet);
+    }
+
+    #[test]
+    fn test_seed() {
+        let junction = create_test_junction();
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
+        junction.seed(addr);
+        assert!(junction.known_junctions.lock().unwrap().contains(&addr));
+    }
+
+    #[test]
+    fn test_get_address() {
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let junction = SlowJunction::new(addr).expect("Failed to create test junction");
+        assert_eq!(junction.get_address(), addr);
+    }
+}

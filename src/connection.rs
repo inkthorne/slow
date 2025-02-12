@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 
+#[derive(Clone, PartialEq, Debug)]
 pub struct JsonPacket {
     pub addr: SocketAddr,
     pub json: Value,
