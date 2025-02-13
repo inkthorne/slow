@@ -1,7 +1,8 @@
 use crate::datagram::SlowDatagram;
 use serde_json::Value;
 use std::io::ErrorKind;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::SocketAddr;
+use mio::net::UdpSocket;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct JsonPacket {
@@ -25,7 +26,6 @@ impl SlowConnection {
     /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowConnection` or an error.
     pub fn new(addr: SocketAddr) -> std::io::Result<Self> {
         let socket = UdpSocket::bind(addr)?;
-        socket.set_nonblocking(true)?;
         Ok(SlowConnection { socket })
     }
 
@@ -41,7 +41,7 @@ impl SlowConnection {
     /// * `Result<(), std::io::Error>` - A result indicating success or an error.
     pub fn send_datagram(&self, addr: &SocketAddr, datagram: &SlowDatagram) -> std::io::Result<()> {
         let packaged_data = datagram.package();
-        self.socket.send_to(&packaged_data, addr)?;
+        self.socket.send_to(&packaged_data, *addr)?;
         Ok(())
     }
 
