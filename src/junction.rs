@@ -87,13 +87,22 @@ impl SlowJunction {
     pub fn get_address(&self) -> SocketAddr {
         self.addr
     }
+
+    /// Returns the number of packets waiting to be received.
+    ///
+    /// # Returns
+    ///
+    /// * `usize` - The number of packets in the received queue.
+    pub fn waiting_packet_count(&self) -> usize {
+        self.received_queue.lock().unwrap().len()
+    }
 }
 
 impl SlowJunction {
     /// Updates the state of the `SlowJunction` by processing received packets and sending queued JSON values.
     fn update(&self) {
         while let Some((slow_datagram, sender_addr)) = self.connection.recv() {
-            self.on_packet_received(slow_datagram, sender_addr);
+            self.on_datagram_received(slow_datagram, sender_addr);
         }
 
         let mut queue = self.send_queue.lock().unwrap();
@@ -119,7 +128,7 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `slow_datagram` - A `SlowDatagram` that was received.
-    fn on_packet_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
+    fn on_datagram_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
         // Always add sender to known junctions
         {
             let mut known_junctions = self.known_junctions.lock().unwrap();
@@ -213,5 +222,21 @@ mod tests {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
         let junction = SlowJunction::new(addr, 1).expect("Failed to create test junction");
         assert_eq!(junction.get_address(), addr);
+    }
+
+    #[test]
+    fn test_waiting_packet_count() {
+        let junction = create_test_junction();
+        assert_eq!(junction.waiting_packet_count(), 0);
+        
+        let json_packet = JsonPacket {
+            addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345),
+            json: serde_json::json!({"key": "value"}),
+        };
+        junction.received_queue.lock().unwrap().push_back(json_packet);
+        assert_eq!(junction.waiting_packet_count(), 1);
+        
+        junction.recv();
+        assert_eq!(junction.waiting_packet_count(), 0);
     }
 }
