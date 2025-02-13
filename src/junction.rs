@@ -3,6 +3,7 @@ use crate::datagram::SlowDatagram;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub struct SlowJunction {
@@ -10,8 +11,9 @@ pub struct SlowJunction {
     known_junctions: Arc<Mutex<HashSet<SocketAddr>>>,
     send_queue: Arc<Mutex<VecDeque<SlowDatagram>>>,
     received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
-    addr: SocketAddr, // Add addr field
-    recipient_id: u16, // Add recipient_id field
+    addr: SocketAddr,           // Add addr field
+    recipient_id: u16,          // Add recipient_id field
+    terminate: Arc<AtomicBool>, // Add termination flag
 }
 
 impl SlowJunction {
@@ -32,8 +34,9 @@ impl SlowJunction {
             known_junctions: Arc::new(Mutex::new(HashSet::new())),
             send_queue: Arc::new(Mutex::new(VecDeque::new())),
             received_queue: Arc::new(Mutex::new(VecDeque::new())),
-            addr, // Initialize addr field
-            recipient_id, // Initialize recipient_id field
+            addr,                                        // Initialize addr field
+            recipient_id,                                // Initialize recipient_id field
+            terminate: Arc::new(AtomicBool::new(false)), // Initialize termination flag
         });
 
         let junction_clone = Arc::clone(&junction);
@@ -98,6 +101,12 @@ impl SlowJunction {
     }
 }
 
+impl Drop for SlowJunction {
+    fn drop(&mut self) {
+        self.terminate.store(true, Ordering::SeqCst);
+    }
+}
+
 impl SlowJunction {
     /// Updates the state of the `SlowJunction` by processing received packets and sending queued JSON values.
     fn update(&self) {
@@ -117,7 +126,7 @@ impl SlowJunction {
 
     /// Runs the main loop of the `SlowJunction`, periodically calling `update`.
     fn run(&self) {
-        loop {
+        while !self.terminate.load(Ordering::SeqCst) {
             self.update();
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
@@ -205,7 +214,11 @@ mod tests {
             addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345),
             json: serde_json::json!({"key": "value"}),
         };
-        junction.received_queue.lock().unwrap().push_back(json_packet.clone());
+        junction
+            .received_queue
+            .lock()
+            .unwrap()
+            .push_back(json_packet.clone());
         assert_eq!(junction.recv().unwrap(), json_packet);
     }
 
@@ -228,14 +241,18 @@ mod tests {
     fn test_waiting_packet_count() {
         let junction = create_test_junction();
         assert_eq!(junction.waiting_packet_count(), 0);
-        
+
         let json_packet = JsonPacket {
             addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345),
             json: serde_json::json!({"key": "value"}),
         };
-        junction.received_queue.lock().unwrap().push_back(json_packet);
+        junction
+            .received_queue
+            .lock()
+            .unwrap()
+            .push_back(json_packet);
         assert_eq!(junction.waiting_packet_count(), 1);
-        
+
         junction.recv();
         assert_eq!(junction.waiting_packet_count(), 0);
     }
