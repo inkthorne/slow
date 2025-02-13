@@ -7,13 +7,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub struct SlowJunction {
+    /// The connection used by the junction.
     connection: SlowConnection,
+
+    /// A set of known junction addresses.
     known_junctions: Arc<Mutex<HashSet<SocketAddr>>>,
+
+    /// A queue of datagrams to be sent.
     send_queue: Arc<Mutex<VecDeque<SlowDatagram>>>,
+
+    /// A queue of received JSON packets.
     received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
-    addr: SocketAddr,           // Add addr field
-    recipient_id: u16,          // Add recipient_id field
-    terminate: Arc<AtomicBool>, // Add termination flag
+
+    /// The address of the junction.
+    addr: SocketAddr,
+
+    /// The recipient ID for the junction.
+    recipient_id: u16,
+
+    /// A flag to indicate if the thread should terminate.
+    terminate: Arc<AtomicBool>,
 }
 
 impl SlowJunction {
