@@ -21,15 +21,27 @@ mod tests {
         junction1.seed(addr2);
         junction2.seed(addr3);
 
-        let json = json!({"key": "value"});
-        junction1.send(json.clone(), 3);
+        let ping = json!({"key": "ping"});
+        junction1.send(ping.clone(), 3);
 
         // Delay before receiving the packet
         thread::sleep(Duration::from_millis(1000));
 
         // Check if the datagram was received by junction3
         let received_packet = junction3.recv().unwrap();
-        assert_eq!(received_packet.json, json);
+        assert_eq!(received_packet.json, ping);
         assert_eq!(received_packet.addr, addr2);
+
+        // Send pong response back to junction1
+        let pong = json!({"key": "pong"});
+        junction3.send(pong.clone(), 1);
+
+        // Wait for pong to arrive
+        thread::sleep(Duration::from_millis(1000));
+
+        // Verify junction1 received the pong
+        let pong_packet = junction1.recv().unwrap();
+        assert_eq!(pong_packet.json, pong);
+        assert_eq!(pong_packet.addr, addr2);
     }
 }

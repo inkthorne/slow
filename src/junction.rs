@@ -120,6 +120,12 @@ impl SlowJunction {
     ///
     /// * `slow_datagram` - A `SlowDatagram` that was received.
     fn on_packet_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
+        // Always add sender to known junctions
+        {
+            let mut known_junctions = self.known_junctions.lock().unwrap();
+            known_junctions.insert(sender_addr);
+        }
+
         if slow_datagram.get_recipient_id() != self.recipient_id {
             self.forward(slow_datagram, sender_addr);
             return;
@@ -129,14 +135,8 @@ impl SlowJunction {
                 addr: sender_addr,
                 json,
             };
-            {
-                let mut known_junctions = self.known_junctions.lock().unwrap();
-                known_junctions.insert(json_packet.addr);
-            }
-            {
-                let mut queue = self.received_queue.lock().unwrap();
-                queue.push_back(json_packet);
-            }
+            let mut queue = self.received_queue.lock().unwrap();
+            queue.push_back(json_packet);
         }
     }
 
