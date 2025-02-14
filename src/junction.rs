@@ -4,7 +4,8 @@ use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::{Mutex, Notify};
 
 pub struct SlowJunction {
     /// The connection used by the junction.
@@ -27,6 +28,12 @@ pub struct SlowJunction {
 
     /// A flag to indicate if the thread should terminate.
     terminate: Arc<AtomicBool>,
+
+    /// A notification to signal when a datagram is added to the send queue.
+    send_notify: Arc<Notify>,
+
+    /// A notification to signal when a datagram is added to the receive queue.
+    receive_notify: Arc<Notify>,
 }
 
 impl SlowJunction {
@@ -40,29 +47,32 @@ impl SlowJunction {
     /// # Returns
     ///
     /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
-    pub fn new(addr: SocketAddr, recipient_id: u16) -> std::io::Result<Arc<Self>> {
-        let connection = SlowConnection::new(addr)?;
+    pub async fn new(addr: SocketAddr, recipient_id: u16) -> std::io::Result<Arc<Self>> {
+        let connection = SlowConnection::new(addr).await?;
         let junction = Arc::new(Self {
             connection,
             known_junctions: Arc::new(Mutex::new(HashSet::new())),
             send_queue: Arc::new(Mutex::new(VecDeque::new())),
             received_queue: Arc::new(Mutex::new(VecDeque::new())),
-            addr,                                        // Initialize addr field
-            recipient_id,                                // Initialize recipient_id field
-            terminate: Arc::new(AtomicBool::new(false)), // Initialize termination flag
+            addr,
+            recipient_id,
+            terminate: Arc::new(AtomicBool::new(false)),
+            send_notify: Arc::new(Notify::new()),
+            receive_notify: Arc::new(Notify::new()),
         });
 
         let junction_clone = Arc::clone(&junction);
-        std::thread::spawn(move || {
-            junction_clone.run();
+        tokio::spawn(async move {
+            junction_clone.run().await;
         });
 
         Ok(junction)
     }
 
     /// Prints the addresses of all peers that have sent packets to the `SlowJunction`.
-    pub fn print_known_junctions(&self) {
-        for addr in self.known_junctions.lock().unwrap().iter() {
+    pub async fn print_known_junctions(&self) {
+        let known_junctions = self.known_junctions.lock().await;
+        for addr in known_junctions.iter() {
             println!("{}", addr);
         }
     }
@@ -73,10 +83,11 @@ impl SlowJunction {
     ///
     /// * `json` - A `Value` representing the JSON data to be queued.
     /// * `recipient_id` - A `u16` representing the recipient ID.
-    pub fn send(&self, json: Value, recipient_id: u16) {
-        let mut queue = self.send_queue.lock().unwrap();
+    pub async fn send(&self, json: Value, recipient_id: u16) {
+        let mut queue = self.send_queue.lock().await;
         let datagram = SlowDatagram::new(recipient_id, &json).expect("Failed to create datagram");
         queue.push_back(datagram);
+        self.send_notify.notify_one();
     }
 
     /// Receives a JSON packet from the received queue.
@@ -84,8 +95,8 @@ impl SlowJunction {
     /// # Returns
     ///
     /// * `Option<JsonPacket>` - An optional JSON packet if available.
-    pub fn recv(&self) -> Option<JsonPacket> {
-        let mut queue = self.received_queue.lock().unwrap();
+    pub async fn recv(&self) -> Option<JsonPacket> {
+        let mut queue = self.received_queue.lock().await;
         queue.pop_front()
     }
 
@@ -93,9 +104,9 @@ impl SlowJunction {
     ///
     /// # Arguments
     ///
-    /// * `addr` - A `SocketAddr` to be added to the set of received addresses.
-    pub fn seed(&self, addr: SocketAddr) {
-        let mut known_junctions = self.known_junctions.lock().unwrap();
+    /// * `addr` - A `SocketAddr` to be added to the set of known junction addresses.
+    pub async fn seed(&self, addr: SocketAddr) {
+        let mut known_junctions = self.known_junctions.lock().await;
         known_junctions.insert(addr);
     }
 
@@ -109,8 +120,16 @@ impl SlowJunction {
     /// # Returns
     ///
     /// * `usize` - The number of packets in the received queue.
-    pub fn waiting_packet_count(&self) -> usize {
-        self.received_queue.lock().unwrap().len()
+    pub async fn waiting_packet_count(&self) -> usize {
+        let queue = self.received_queue.lock().await;
+        queue.len()
+    }
+
+    /// Waits for a notification that there are items in the received_queue and returns the datagram.
+    pub async fn wait_for_datagram(&self) -> Option<JsonPacket> {
+        self.receive_notify.notified().await;
+        let mut queue = self.received_queue.lock().await;
+        queue.pop_front()
     }
 }
 
@@ -122,26 +141,17 @@ impl Drop for SlowJunction {
 
 impl SlowJunction {
     /// Updates the state of the `SlowJunction` by processing received packets and sending queued JSON values.
-    fn update(&self) {
-        while let Some((slow_datagram, sender_addr)) = self.connection.recv() {
-            self.on_datagram_received(slow_datagram, sender_addr);
-        }
-
-        let mut queue = self.send_queue.lock().unwrap();
-        while let Some(datagram) = queue.pop_front() {
-            for addr in self.known_junctions.lock().unwrap().iter() {
-                self.connection
-                    .send_datagram(addr, &datagram)
-                    .expect("Failed to send datagram");
-            }
+    async fn update2(&self) {
+        tokio::select! {
+            _= self.pump_send() => {}
+            _ = self.pump_recv() => {}
         }
     }
 
-    /// Runs the main loop of the `SlowJunction`, periodically calling `update`.
-    fn run(&self) {
+    /// Runs the main loop of the `SlowJunction`, periodically calling `update2`.
+    async fn run(&self) {
         while !self.terminate.load(Ordering::SeqCst) {
-            self.update();
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            self.update2().await;
         }
     }
 
@@ -150,15 +160,15 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `slow_datagram` - A `SlowDatagram` that was received.
-    fn on_datagram_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
+    async fn on_datagram_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
         // Always add sender to known junctions
         {
-            let mut known_junctions = self.known_junctions.lock().unwrap();
+            let mut known_junctions = self.known_junctions.lock().await;
             known_junctions.insert(sender_addr);
         }
 
         if slow_datagram.get_recipient_id() != self.recipient_id {
-            self.forward(slow_datagram, sender_addr);
+            self.forward(slow_datagram, sender_addr).await;
             return;
         }
         if let Some(json) = slow_datagram.get_json() {
@@ -166,8 +176,9 @@ impl SlowJunction {
                 addr: sender_addr,
                 json,
             };
-            let mut queue = self.received_queue.lock().unwrap();
+            let mut queue = self.received_queue.lock().await;
             queue.push_back(json_packet);
+            self.receive_notify.notify_one();
         }
     }
 
@@ -177,17 +188,42 @@ impl SlowJunction {
     ///
     /// * `datagram` - A `SlowDatagram` to be forwarded.
     /// * `sender_addr` - The `SocketAddr` of the sender.
-    fn forward(&self, mut datagram: SlowDatagram, sender_addr: SocketAddr) {
+    async fn forward(&self, mut datagram: SlowDatagram, sender_addr: SocketAddr) {
         if !datagram.decrement_hops() {
             return;
         }
-        let known_junctions = self.known_junctions.lock().unwrap();
+        let known_junctions = self.known_junctions.lock().await;
         for addr in known_junctions.iter() {
             if *addr != sender_addr {
                 self.connection
                     .send_datagram(addr, &datagram)
+                    .await
                     .expect("Failed to forward datagram");
             }
+        }
+    }
+
+    /// Waits for a datagram via connection.recv() and returns it.
+    pub async fn read_datagram(&self) -> Option<(SlowDatagram, SocketAddr)> {
+        self.connection.recv().await
+    }
+
+    async fn pump_send(&self) {
+        self.send_notify.notified().await;
+        let mut queue = self.send_queue.lock().await;
+        while let Some(datagram) = queue.pop_front() {
+            for addr in self.known_junctions.lock().await.iter() {
+                self.connection
+                    .send_datagram(addr, &datagram)
+                    .await
+                    .expect("Failed to send datagram");
+            }
+        }
+    }
+
+    async fn pump_recv(&self) {
+        if let Some((slow_datagram, sender_addr)) = self.connection.recv().await {
+            self.on_datagram_received(slow_datagram, sender_addr).await;
         }
     }
 }
@@ -197,63 +233,62 @@ mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr};
 
-    fn create_test_junction() -> Arc<SlowJunction> {
+    async fn create_test_junction() -> Arc<SlowJunction> {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        SlowJunction::new(addr, 1).expect("Failed to create test junction")
+        SlowJunction::new(addr, 1).await.expect("Failed to create test junction")
     }
 
-    #[test]
-    fn test_new_junction() {
-        let junction = create_test_junction();
-        assert_eq!(junction.known_junctions.lock().unwrap().len(), 0);
-        assert_eq!(junction.send_queue.lock().unwrap().len(), 0);
-        assert_eq!(junction.received_queue.lock().unwrap().len(), 0);
+    #[tokio::test]
+    async fn test_new_junction() {
+        let junction = create_test_junction().await;
+        assert_eq!(junction.known_junctions.lock().await.len(), 0);
+        assert_eq!(junction.send_queue.lock().await.len(), 0);
+        assert_eq!(junction.received_queue.lock().await.len(), 0);
     }
 
-    #[test]
-    fn test_send() {
-        let junction = create_test_junction();
+    #[tokio::test]
+    async fn test_send() {
+        let junction = create_test_junction().await;
         let json = serde_json::json!({"key": "value"});
-        junction.send(json.clone(), 1);
-        assert_eq!(junction.send_queue.lock().unwrap().len(), 1);
-        let datagram = junction.send_queue.lock().unwrap().pop_front().unwrap();
+        junction.send(json.clone(), 1).await;
+        assert_eq!(junction.send_queue.lock().await.len(), 1);
+        let datagram = junction.send_queue.lock().await.pop_front().unwrap();
         assert_eq!(datagram.get_json().unwrap(), json);
     }
 
-    #[test]
-    fn test_recv() {
-        let junction = create_test_junction();
+    #[tokio::test]
+    async fn test_recv() {
+        let junction = create_test_junction().await;
         let json_packet = JsonPacket {
             addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345),
             json: serde_json::json!({"key": "value"}),
         };
         junction
             .received_queue
-            .lock()
-            .unwrap()
+            .lock().await
             .push_back(json_packet.clone());
-        assert_eq!(junction.recv().unwrap(), json_packet);
+        assert_eq!(junction.recv().await.unwrap(), json_packet);
     }
 
-    #[test]
-    fn test_seed() {
-        let junction = create_test_junction();
+    #[tokio::test]
+    async fn test_seed() {
+        let junction = create_test_junction().await;
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
-        junction.seed(addr);
-        assert!(junction.known_junctions.lock().unwrap().contains(&addr));
+        junction.seed(addr).await;
+        assert!(junction.known_junctions.lock().await.contains(&addr));
     }
 
-    #[test]
-    fn test_get_address() {
+    #[tokio::test]
+    async fn test_get_address() {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let junction = SlowJunction::new(addr, 1).expect("Failed to create test junction");
+        let junction = SlowJunction::new(addr, 1).await.expect("Failed to create test junction");
         assert_eq!(junction.get_address(), addr);
     }
 
-    #[test]
-    fn test_waiting_packet_count() {
-        let junction = create_test_junction();
-        assert_eq!(junction.waiting_packet_count(), 0);
+    #[tokio::test]
+    async fn test_waiting_packet_count() {
+        let junction = create_test_junction().await;
+        assert_eq!(junction.waiting_packet_count().await, 0);
 
         let json_packet = JsonPacket {
             addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345),
@@ -261,12 +296,11 @@ mod tests {
         };
         junction
             .received_queue
-            .lock()
-            .unwrap()
+            .lock().await
             .push_back(json_packet);
-        assert_eq!(junction.waiting_packet_count(), 1);
+        assert_eq!(junction.waiting_packet_count().await, 1);
 
-        junction.recv();
-        assert_eq!(junction.waiting_packet_count(), 0);
+        junction.recv().await;
+        assert_eq!(junction.waiting_packet_count().await, 0);
     }
 }
