@@ -14,6 +14,7 @@ pub struct JsonPacket {
 /// This struct provides methods to create a new connection, send datagrams, receive datagrams, and retrieve the local address of the socket.
 /// It is designed to work asynchronously using the Tokio runtime.
 pub struct SlowConnection {
+    /// The UDP socket used for the connection.
     socket: UdpSocket,
 }
 

@@ -7,6 +7,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 
+/// A `SlowJunction` represents a network junction that can send and receive datagrams, manage known junctions, and handle JSON packets.
+///
+/// This struct provides methods to create a new junction, send and receive JSON packets, manage known junctions, and run the main loop.
+/// It is designed to work asynchronously using the Tokio runtime.
 pub struct SlowJunction {
     /// The connection used by the junction.
     connection: SlowConnection,
