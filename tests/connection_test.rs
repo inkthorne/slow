@@ -3,7 +3,7 @@ use slow::connection::SlowConnection;
 use slow::datagram::SlowDatagram;
 
 #[tokio::test]
-async fn test_datagram() {
+async fn test_connection_pair() {
     let addr1: SocketAddr = "127.0.0.1:5555".parse().unwrap();
     let connection1 = SlowConnection::new(addr1).await.unwrap();
 
