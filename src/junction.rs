@@ -196,7 +196,7 @@ impl SlowJunction {
         for addr in known_junctions.iter() {
             if *addr != sender_addr {
                 self.connection
-                    .send_datagram(addr, &datagram)
+                    .send_datagram(&datagram, addr)
                     .await
                     .expect("Failed to forward datagram");
             }
@@ -205,16 +205,16 @@ impl SlowJunction {
 
     /// Waits for a datagram via connection.recv() and returns it.
     pub async fn read_datagram(&self) -> Option<(SlowDatagram, SocketAddr)> {
-        self.connection.recv().await
+        self.connection.recv_datagram().await
     }
 
     async fn pump_send(&self) {
         self.send_notify.notified().await;
         let mut queue = self.send_queue.lock().await;
         while let Some(datagram) = queue.pop_front() {
-            for addr in self.known_junctions.lock().await.iter() {
+            for recipient_addr in self.known_junctions.lock().await.iter() {
                 self.connection
-                    .send_datagram(addr, &datagram)
+                    .send_datagram(&datagram, recipient_addr)
                     .await
                     .expect("Failed to send datagram");
             }
@@ -222,7 +222,7 @@ impl SlowJunction {
     }
 
     async fn pump_recv(&self) {
-        if let Some((slow_datagram, sender_addr)) = self.connection.recv().await {
+        if let Some((slow_datagram, sender_addr)) = self.connection.recv_datagram().await {
             self.on_datagram_received(slow_datagram, sender_addr).await;
         }
     }

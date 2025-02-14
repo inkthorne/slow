@@ -4,19 +4,20 @@ use slow::datagram::SlowDatagram;
 
 #[tokio::test]
 async fn test_connection_pair() {
-    let addr1: SocketAddr = "127.0.0.1:5555".parse().unwrap();
+    let addr1: SocketAddr = "127.0.0.1:8081".parse().unwrap();
+    let addr2: SocketAddr = "127.0.0.1:8082".parse().unwrap();
     let connection1 = SlowConnection::new(addr1).await.unwrap();
-
-    let addr2: SocketAddr = "127.0.0.1:6666".parse().unwrap();
     let connection2 = SlowConnection::new(addr2).await.unwrap();
 
-    let target_addr: SocketAddr = connection2.local_addr().unwrap();
-    let junction_id = 1234;
-    let value = serde_json::json!({"key": "value"});
-    let datagram = SlowDatagram::new(junction_id, &value).unwrap();
-    connection1.send_datagram(&target_addr, &datagram).await.unwrap();
+    let json = serde_json::json!({ "key": "value" });
+    let datagram = SlowDatagram::new(1, &json).unwrap();
 
-    let (received_datagram, src) = connection2.wait_for_datagram().await.unwrap();
-    assert_eq!(received_datagram.get_json().unwrap(), value);
-    assert_eq!(src, addr1);
+    // Send datagram from connection1 to connection2
+    connection1.send_datagram(&datagram, &addr2).await.unwrap();
+
+    // Receive datagram on connection2
+    let received = connection2.recv_datagram().await.unwrap();
+
+    assert_eq!(received.1, addr1);
+    assert_eq!(received.0.get_json().unwrap(), json);
 }
