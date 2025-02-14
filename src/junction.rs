@@ -36,6 +36,12 @@ pub struct SlowJunction {
     receive_notify: Arc<Notify>,
 }
 
+impl Drop for SlowJunction {
+    fn drop(&mut self) {
+        self.terminate.store(true, Ordering::SeqCst);
+    }
+}
+
 impl SlowJunction {
     /// Creates a new `SlowJunction` instance.
     ///
@@ -46,7 +52,7 @@ impl SlowJunction {
     ///
     /// # Returns
     ///
-    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
+    /// * `Result<Arc<Self>, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
     pub async fn new(addr: SocketAddr, recipient_id: u16) -> std::io::Result<Arc<Self>> {
         let connection = SlowConnection::new(addr).await?;
         let junction = Arc::new(Self {
@@ -69,7 +75,7 @@ impl SlowJunction {
         Ok(junction)
     }
 
-    /// Prints the addresses of all peers that have sent packets to the `SlowJunction`.
+    /// Prints the addresses of all known junctions.
     pub async fn print_known_junctions(&self) {
         let known_junctions = self.known_junctions.lock().await;
         for addr in known_junctions.iter() {
@@ -77,7 +83,7 @@ impl SlowJunction {
         }
     }
 
-    /// Queues a JSON value to be sent to all peers.
+    /// Queues a JSON value to be sent to all known junctions.
     ///
     /// # Arguments
     ///
@@ -100,7 +106,7 @@ impl SlowJunction {
         queue.pop_front()
     }
 
-    /// Adds a seed address to the set of received addresses.
+    /// Adds a seed address to the set of known junction addresses.
     ///
     /// # Arguments
     ///
@@ -125,21 +131,17 @@ impl SlowJunction {
         queue.len()
     }
 
-    /// Waits for a notification that there are items in the received_queue and returns the datagram.
+    /// Waits for a notification that there are items in the received queue and returns the JSON packet.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<JsonPacket>` - An optional JSON packet if available.
     pub async fn wait_for_datagram(&self) -> Option<JsonPacket> {
         self.receive_notify.notified().await;
         let mut queue = self.received_queue.lock().await;
         queue.pop_front()
     }
-}
 
-impl Drop for SlowJunction {
-    fn drop(&mut self) {
-        self.terminate.store(true, Ordering::SeqCst);
-    }
-}
-
-impl SlowJunction {
     /// Updates the state of the `SlowJunction` by processing received packets and sending queued JSON values.
     async fn update2(&self) {
         tokio::select! {
@@ -160,6 +162,7 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `slow_datagram` - A `SlowDatagram` that was received.
+    /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_datagram_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
         // Always add sender to known junctions
         {
@@ -182,7 +185,7 @@ impl SlowJunction {
         }
     }
 
-    /// Forwards a `SlowDatagram` to all peers except the sender.
+    /// Forwards a `SlowDatagram` to all known junctions except the sender.
     ///
     /// # Arguments
     ///
@@ -192,35 +195,46 @@ impl SlowJunction {
         if !datagram.decrement_hops() {
             return;
         }
+        self.send_to_known_junctions(datagram, Some(sender_addr)).await;
+    }
+
+    /// Sends a `SlowDatagram` to all known junctions except the specified sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `datagram` - The `SlowDatagram` to be sent.
+    /// * `exclude_addr` - The `SocketAddr` of the sender to be excluded.
+    pub async fn send_to_known_junctions(&self, datagram: SlowDatagram, exclude_addr: Option<SocketAddr>) {
         let known_junctions = self.known_junctions.lock().await;
         for addr in known_junctions.iter() {
-            if *addr != sender_addr {
+            if Some(*addr) != exclude_addr {
                 self.connection
                     .send_datagram(&datagram, addr)
-                    .await
-                    .expect("Failed to forward datagram");
-            }
-        }
-    }
-
-    /// Waits for a datagram via connection.recv() and returns it.
-    pub async fn read_datagram(&self) -> Option<(SlowDatagram, SocketAddr)> {
-        self.connection.recv_datagram().await
-    }
-
-    async fn pump_send(&self) {
-        self.send_notify.notified().await;
-        let mut queue = self.send_queue.lock().await;
-        while let Some(datagram) = queue.pop_front() {
-            for recipient_addr in self.known_junctions.lock().await.iter() {
-                self.connection
-                    .send_datagram(&datagram, recipient_addr)
                     .await
                     .expect("Failed to send datagram");
             }
         }
     }
 
+    /// Waits for a datagram via `connection.recv_datagram()` and returns it.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<(SlowDatagram, SocketAddr)>` - An optional tuple containing the received datagram and sender address.
+    pub async fn read_datagram(&self) -> Option<(SlowDatagram, SocketAddr)> {
+        self.connection.recv_datagram().await
+    }
+
+    /// Sends all queued datagrams to known junctions, excluding the address `0.0.0.0:0`.
+    async fn pump_send(&self) {
+        self.send_notify.notified().await;
+        let mut queue = self.send_queue.lock().await;
+        while let Some(datagram) = queue.pop_front() {
+            self.send_to_known_junctions(datagram, None).await;
+        }
+    }
+
+    /// Receives a datagram via `connection.recv_datagram()` and processes it.
     async fn pump_recv(&self) {
         if let Some((slow_datagram, sender_addr)) = self.connection.recv_datagram().await {
             self.on_datagram_received(slow_datagram, sender_addr).await;
