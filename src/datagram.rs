@@ -7,7 +7,7 @@ use serde_json::Value;
 pub struct SlowDatagramHeader {
     pub recipient_id: JunctionId,
     pub sender_id: JunctionId,
-    pub hops_remaining: u16,
+    pub hop_count: u16,
     pub payload_size: u16,
 }
 
@@ -32,8 +32,8 @@ impl SlowDatagram {
         let payload = serde_json::to_vec(json).ok()?;
         let header = SlowDatagramHeader {
             recipient_id,
-            sender_id, // new field
-            hops_remaining: 4,
+            sender_id,
+            hop_count: 0,
             payload_size: payload.len() as u16,
         };
         Some(SlowDatagram { header, payload })
@@ -98,16 +98,14 @@ impl SlowDatagram {
         serde_json::from_slice(&self.payload).ok()
     }
 
-    /// Decrements the `hops_remaining` field by 1.
+    /// Increments the `hop_count` field by 1.
     ///
     /// # Returns
     ///
-    /// * `bool` - `true` if there are hops remaining, `false` otherwise.
-    pub fn decrement_hops(&mut self) -> bool {
-        if self.header.hops_remaining > 0 {
-            self.header.hops_remaining -= 1;
-        }
-        self.header.hops_remaining > 0
+    /// * `u16` - The new value of `hop_count`.
+    pub fn increment_hops(&mut self) -> u16 {
+        self.header.hop_count += 1;
+        self.header.hop_count
     }
 
     /// Returns the `recipient_id` from the header.
@@ -126,5 +124,14 @@ impl SlowDatagram {
     /// * `&JunctionId` - The sender ID.
     pub fn get_sender_id(&self) -> &JunctionId {
         &self.header.sender_id
+    }
+
+    /// Returns the `hop_count` from the header.
+    ///
+    /// # Returns
+    ///
+    /// * `u16` - The hop count.
+    pub fn get_hop_count(&self) -> u16 {
+        self.header.hop_count
     }
 }
