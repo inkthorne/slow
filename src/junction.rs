@@ -278,15 +278,11 @@ impl SlowJunction {
         if datagram.increment_hops() >= 4 {
             return;
         }
-        if let Some(best_route) = self.get_best_route(datagram.get_recipient_id()).await {
-            self.connection
-                .send_datagram(&datagram, &best_route)
-                .await
-                .expect("Failed to send datagram");
-        } else {
-            self.send_to_known_junctions(datagram, Some(sender_addr))
-                .await;
+        if self.send_to_best_route(&datagram).await {
+            return;
         }
+        self.send_to_known_junctions(datagram, Some(sender_addr))
+            .await;
     }
 
     /// Sends a `SlowDatagram` to all known junctions except the specified sender.
@@ -325,6 +321,9 @@ impl SlowJunction {
         self.send_notify.notified().await;
         let mut queue = self.send_queue.lock().await;
         while let Some(datagram) = queue.pop_front() {
+            if self.send_to_best_route(&datagram).await {
+                continue;
+            }
             self.send_to_known_junctions(datagram, None).await;
         }
     }
@@ -411,5 +410,23 @@ impl SlowJunction {
         let route_table = self.route_table.lock().await;
         let best_route_addr = route_table.get_best_route(junction_id);
         best_route_addr
+    }
+
+    /// Sends a `SlowDatagram` to the best route available.
+    ///
+    /// # Arguments
+    ///
+    /// * `datagram` - The `SlowDatagram` to be sent.
+    pub async fn send_to_best_route(&self, datagram: &SlowDatagram) -> bool {
+        if let Some(best_route) = self.get_best_route(datagram.get_recipient_id()).await {
+            self.connection
+                .send_datagram(datagram, &best_route)
+                .await
+                .expect("Failed to send datagram");
+
+            return true;
+        }
+
+        false
     }
 }
