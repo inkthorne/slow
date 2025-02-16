@@ -1,6 +1,6 @@
-use std::net::SocketAddr;
 use slow::connection::SlowConnection;
 use slow::datagram::SlowDatagram;
+use std::net::SocketAddr;
 
 #[tokio::test]
 async fn test_connection_pair() {
@@ -10,7 +10,7 @@ async fn test_connection_pair() {
     let connection2 = SlowConnection::new(addr2).await.unwrap();
 
     let json = serde_json::json!({ "key": "value" });
-    let datagram = SlowDatagram::new(1, &json).unwrap();
+    let datagram = SlowDatagram::new("1".to_string(), &json).unwrap();
 
     // Send datagram from connection1 to connection2
     connection1.send_datagram(&datagram, &addr2).await.unwrap();

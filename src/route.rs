@@ -43,22 +43,25 @@ impl RouteTable {
 
     pub fn insert_route(
         &mut self,
-        junction_id: JunctionId,
+        junction_id: &JunctionId,
         addr: SocketAddr,
         hops: u16,
         time: f32,
     ) {
-        let route = self.junctions.entry(junction_id).or_insert_with(Route::new);
+        let route = self
+            .junctions
+            .entry(junction_id.clone())
+            .or_insert_with(Route::new);
         route.add_route(addr, hops, time);
     }
 
-    pub fn get_best_route(&self, junction_id: JunctionId) -> Option<SocketAddr> {
+    pub fn get_best_route(&self, junction_id: &JunctionId) -> Option<SocketAddr> {
         self.junctions
-            .get(&junction_id)
+            .get(junction_id)
             .and_then(|route| route.get_best_route())
     }
 
-    pub fn remove(&mut self, junction_id: JunctionId) -> Option<Route> {
-        self.junctions.remove(&junction_id)
+    pub fn remove(&mut self, junction_id: &JunctionId) -> Option<Route> {
+        self.junctions.remove(junction_id)
     }
 }

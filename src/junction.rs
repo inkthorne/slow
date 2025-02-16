@@ -1,5 +1,6 @@
 use crate::connection::{JsonPacket, SlowConnection};
 use crate::datagram::SlowDatagram;
+use crate::route::RouteTable;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
@@ -7,21 +8,28 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Hash, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct JunctionId {
-    id: u16,
+    id: String,
 }
 
 impl JunctionId {
-    pub fn new(id: u16) -> Self {
-        JunctionId { id }
+    pub fn new(id: &str) -> Self {
+        JunctionId { id: id.to_string() }
     }
 }
 
-/// A `SlowJunction` represents a network junction that can send and receive datagrams, manage known junctions, and handle JSON packets.
+impl std::fmt::Display for JunctionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
+
+/// A `SlowJunction` represents a network junction that can send and receive datagrams, manage known junctions,
+/// and handle JSON packets.
 ///
-/// This struct provides methods to create a new junction, send and receive JSON packets, manage known junctions, and run the main loop.
-/// It is designed to work asynchronously using the Tokio runtime.
+/// This struct provides methods to create a new junction, send and receive JSON packets, manage known junctions,
+/// and run the main loop. It is designed to work asynchronously using the Tokio runtime.
 pub struct SlowJunction {
     /// The connection used by the junction.
     connection: SlowConnection,
@@ -39,7 +47,7 @@ pub struct SlowJunction {
     addr: SocketAddr,
 
     /// The recipient ID for the junction.
-    recipient_id: u16,
+    junction_id: JunctionId,
 
     /// A flag to indicate if the thread should terminate.
     terminate: Arc<AtomicBool>,
@@ -52,6 +60,9 @@ pub struct SlowJunction {
 
     /// A counter for the number of pong messages received.
     pong_counter: Arc<Mutex<u32>>,
+
+    /// The route table for the junction.
+    route_table: Arc<Mutex<RouteTable>>,
 }
 
 impl Drop for SlowJunction {
@@ -71,7 +82,7 @@ impl SlowJunction {
     /// # Returns
     ///
     /// * `Result<Arc<Self>, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
-    pub async fn new(addr: SocketAddr, recipient_id: u16) -> std::io::Result<Arc<Self>> {
+    pub async fn new(addr: SocketAddr, junction_id: JunctionId) -> std::io::Result<Arc<Self>> {
         let connection = SlowConnection::new(addr).await?;
         let junction = Arc::new(Self {
             connection,
@@ -79,11 +90,12 @@ impl SlowJunction {
             send_queue: Arc::new(Mutex::new(VecDeque::new())),
             received_queue: Arc::new(Mutex::new(VecDeque::new())),
             addr,
-            recipient_id,
+            junction_id, // use passed JunctionId directly
             terminate: Arc::new(AtomicBool::new(false)),
             send_notify: Arc::new(Notify::new()),
             receive_notify: Arc::new(Notify::new()),
             pong_counter: Arc::new(Mutex::new(0)),
+            route_table: Arc::new(Mutex::new(RouteTable::new())),
         });
 
         let junction_clone = Arc::clone(&junction);
@@ -107,10 +119,11 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `json` - A `Value` representing the JSON data to be queued.
-    /// * `recipient_id` - A `u16` representing the recipient ID.
-    pub async fn send(&self, json: Value, recipient_id: u16) {
+    /// * `recipient_id` - A &str representing the recipient ID.
+    pub async fn send(&self, json: Value, recipient_id: &JunctionId) {
         let mut queue = self.send_queue.lock().await;
-        let datagram = SlowDatagram::new(recipient_id, &json).expect("Failed to create datagram");
+        let datagram =
+            SlowDatagram::new(recipient_id.to_string(), &json).expect("Failed to create datagram");
         queue.push_back(datagram);
         self.send_notify.notify_one();
     }
@@ -181,7 +194,7 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `sender_addr` - The `SocketAddr` of the sender to be added.
-    async fn update_known_junctions(&self, sender_addr: SocketAddr) {
+    async fn update_route_table(&self, sender_addr: SocketAddr) {
         let mut known_junctions = self.known_junctions.lock().await;
         known_junctions.insert(sender_addr);
     }
@@ -194,9 +207,11 @@ impl SlowJunction {
     /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_datagram_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
         // Always add sender to known junctions
-        self.update_known_junctions(sender_addr).await;
+        self.update_route_table(sender_addr).await;
+        self.insert_route(&slow_datagram.get_recipient_id(), sender_addr, 1, 0.0)
+            .await;
 
-        if slow_datagram.get_recipient_id() != self.recipient_id {
+        if *slow_datagram.get_recipient_id() != self.junction_id {
             self.forward(slow_datagram, sender_addr).await;
             return;
         }
@@ -284,9 +299,10 @@ impl SlowJunction {
     ///
     /// # Arguments
     ///
-    /// * `addr` - The `SocketAddr` to send the pong message to.
-    pub async fn pong(&self, recipient_id: u16) {
-        let message = serde_json::json!({"type": "pong", "sender_id": self.recipient_id});
+    /// * `recipient_id` - A u16 representing the recipient ID.
+    pub async fn pong(&self, recipient_id: &JunctionId) {
+        let message =
+            serde_json::json!({"type": "pong", "sender_id": self.junction_id.to_string()});
         self.send(message, recipient_id).await;
     }
 
@@ -294,9 +310,10 @@ impl SlowJunction {
     ///
     /// # Arguments
     ///
-    /// * `addr` - The `SocketAddr` to send the ping message to.
-    pub async fn ping(&self, junction_id: u16) {
-        let message = serde_json::json!({"type": "ping", "sender_id": self.recipient_id});
+    /// * `junction_id` - The target junction id as a &str.
+    pub async fn ping(&self, junction_id: &JunctionId) {
+        let message =
+            serde_json::json!({"type": "ping", "sender_id": self.junction_id.to_string()});
         self.send(message, junction_id).await;
     }
 
@@ -322,7 +339,35 @@ impl SlowJunction {
     ///
     /// * `json` - The JSON data of the received ping message.
     async fn on_ping_received(&self, json: Value) {
-        let sender_id = json["sender_id"].as_u64().unwrap() as u16;
-        self.pong(sender_id).await;
+        let sender_str = json["sender_id"].as_str().unwrap();
+        let sender_id = JunctionId::new(sender_str);
+        self.pong(&sender_id).await;
+    }
+
+    /// Inserts a route into the route table.
+    ///
+    /// # Arguments
+    ///
+    /// * `junction_id` - The `JunctionId` of the junction.
+    /// * `addr` - The `SocketAddr` of the junction.
+    /// * `hops` - The number of hops to the junction.
+    /// * `time` - The time to the junction.
+    async fn insert_route(&self, junction_id: &JunctionId, addr: SocketAddr, hops: u16, time: f32) {
+        let mut route_table = self.route_table.lock().await;
+        route_table.insert_route(junction_id, addr, hops, time);
+    }
+
+    /// Gets the best route to a junction.
+    ///
+    /// # Arguments
+    ///
+    /// * `junction_id` - The `JunctionId` of the junction.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<SocketAddr>` - The best route to the junction.
+    async fn get_best_route(&self, junction_id: &JunctionId) -> Option<SocketAddr> {
+        let route_table = self.route_table.lock().await;
+        route_table.get_best_route(junction_id)
     }
 }

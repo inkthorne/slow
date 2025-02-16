@@ -1,10 +1,11 @@
+use crate::junction::JunctionId;
 use bincode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize)]
 pub struct SlowDatagramHeader {
-    pub recipient_id: u16,
+    pub recipient_id: JunctionId, // changed from String to JunctionId
     pub hops_remaining: u16,
     pub payload_size: u16,
 }
@@ -19,16 +20,16 @@ impl SlowDatagram {
     ///
     /// # Arguments
     ///
-    /// * `recipient_id` - A `u16` representing the recipient.
+    /// * `recipient_id` - A `String` representing the recipient.
     /// * `json` - A reference to a `Value` representing the JSON data.
     ///
     /// # Returns
     ///
     /// * `Option<Self>` - An optional `SlowDatagram` instance.
-    pub fn new(recipient_id: u16, json: &Value) -> Option<Self> {
+    pub fn new(recipient_id: String, json: &Value) -> Option<Self> {
         let payload = serde_json::to_vec(json).ok()?;
         let header = SlowDatagramHeader {
-            recipient_id,
+            recipient_id: JunctionId::new(&recipient_id), // updated construction
             hops_remaining: 4,
             payload_size: payload.len() as u16,
         };
@@ -59,9 +60,10 @@ impl SlowDatagram {
     ///
     /// * `Option<Self>` - An optional `SlowDatagram` instance.
     pub fn unpackage(data: &[u8]) -> Option<Self> {
-        let header_data = &data[..std::mem::size_of::<SlowDatagramHeader>()];
-        let header: SlowDatagramHeader = bincode::deserialize(header_data).ok()?;
-        let json_data = &data[std::mem::size_of::<SlowDatagramHeader>()..];
+        let mut cursor = std::io::Cursor::new(data);
+        let header: SlowDatagramHeader = bincode::deserialize_from(&mut cursor).ok()?;
+        let header_size = cursor.position() as usize;
+        let json_data = &data[header_size..];
         if header.payload_size as usize == json_data.len() {
             Some(SlowDatagram {
                 header,
@@ -110,8 +112,8 @@ impl SlowDatagram {
     ///
     /// # Returns
     ///
-    /// * `u16` - The recipient ID.
-    pub fn get_recipient_id(&self) -> u16 {
-        self.header.recipient_id
+    /// * `&JunctionId` - The recipient ID.
+    pub fn get_recipient_id(&self) -> &JunctionId {
+        &self.header.recipient_id
     }
 }
