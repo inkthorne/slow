@@ -128,6 +128,15 @@ impl SlowJunction {
         Ok(junction)
     }
 
+    /// Logs a message to the console.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - A string slice that holds the message to be logged.
+    pub fn log(&self, message: &str) {
+        println!("{}: {}", self.junction_id, message);
+    }
+
     /// Prints the addresses of all known junctions.
     pub async fn print_known_junctions(&self) {
         let known_junctions = self.known_junctions.lock().await;
@@ -211,14 +220,17 @@ impl SlowJunction {
         }
     }
 
-    /// Updates the known junctions by adding the sender address.
+    /// Updates the known junctions by adding the sender address and sender ID.
     ///
     /// # Arguments
     ///
+    /// * `slow_datagram` - A reference to the `SlowDatagram` that was received.
     /// * `sender_addr` - The `SocketAddr` of the sender to be added.
-    async fn update_route_table(&self, sender_addr: SocketAddr) {
+    async fn update_route_table(&self, slow_datagram: &SlowDatagram, sender_addr: SocketAddr) {
         let mut known_junctions = self.known_junctions.lock().await;
         known_junctions.insert(sender_addr);
+        let sender_id = slow_datagram.get_sender_id();
+        self.insert_route(sender_id, sender_addr, 1, 0.0).await;
     }
 
     /// Handles a received datagram by forwarding it and updating the known junctions and received queue.
@@ -228,10 +240,8 @@ impl SlowJunction {
     /// * `slow_datagram` - A `SlowDatagram` that was received.
     /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_datagram_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
-        // Always add sender to known junctions
-        self.update_route_table(sender_addr).await;
-        self.insert_route(&slow_datagram.get_recipient_id(), sender_addr, 1, 0.0)
-            .await;
+        // Update the route table with the sender address.
+        self.update_route_table(&slow_datagram, sender_addr).await;
 
         if *slow_datagram.get_recipient_id() != self.junction_id {
             self.forward(slow_datagram, sender_addr).await;
@@ -266,8 +276,17 @@ impl SlowJunction {
         if !datagram.decrement_hops() {
             return;
         }
-        self.send_to_known_junctions(datagram, Some(sender_addr))
-            .await;
+        if let Some(best_route) = self.get_best_route(datagram.get_recipient_id()).await {
+            self.connection
+                .send_datagram(&datagram, &best_route)
+                .await
+                .expect("Failed to send datagram");
+            self.log("Forwarding datagram to best route");
+        } else {
+            self.send_to_known_junctions(datagram, Some(sender_addr))
+                .await;
+            self.log("No route found, forwarding to all known junctions");
+        }
     }
 
     /// Sends a `SlowDatagram` to all known junctions except the specified sender.
@@ -390,6 +409,15 @@ impl SlowJunction {
     /// * `Option<SocketAddr>` - The best route to the junction.
     async fn get_best_route(&self, junction_id: &JunctionId) -> Option<SocketAddr> {
         let route_table = self.route_table.lock().await;
-        route_table.get_best_route(junction_id)
+        let best_route_addr = route_table.get_best_route(junction_id);
+
+        if let Some(best_route) = best_route_addr {
+            let log_msg = format!("Best route found for {}: {}", junction_id, best_route);
+            self.log(&log_msg);
+        } else {
+            self.log("No best route found");
+        }
+
+        best_route_addr
     }
 }

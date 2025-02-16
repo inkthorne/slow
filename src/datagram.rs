@@ -6,7 +6,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize)]
 pub struct SlowDatagramHeader {
     pub recipient_id: JunctionId,
-    pub sender_id: JunctionId, // new field
+    pub sender_id: JunctionId,
     pub hops_remaining: u16,
     pub payload_size: u16,
 }
@@ -117,5 +117,14 @@ impl SlowDatagram {
     /// * `&JunctionId` - The recipient ID.
     pub fn get_recipient_id(&self) -> &JunctionId {
         &self.header.recipient_id
+    }
+
+    /// Returns the `sender_id` from the header.
+    ///
+    /// # Returns
+    ///
+    /// * `&JunctionId` - The sender ID.
+    pub fn get_sender_id(&self) -> &JunctionId {
+        &self.header.sender_id
     }
 }

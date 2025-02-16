@@ -14,6 +14,11 @@ fn test_insert_and_get_best_route() {
 
     let best_route = route_table.get_best_route(&junction_id);
     assert_eq!(best_route, Some(addr2));
+
+    // Test that no best route is found for a junction_id that doesn't exist in the RouteTable
+    let non_existent_junction_id = JunctionId::new("2");
+    let best_route_non_existent = route_table.get_best_route(&non_existent_junction_id);
+    assert_eq!(best_route_non_existent, None);
 }
 
 #[test]
