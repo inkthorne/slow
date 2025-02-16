@@ -124,3 +124,23 @@ async fn test_junction_pair() {
     assert_eq!(pong_packet.json, pong);
     assert_eq!(pong_packet.addr, addr2);
 }
+
+#[tokio::test]
+async fn test_junction_ping() {
+    let addr1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7777);
+    let addr2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8888);
+
+    let junction1 = SlowJunction::new(addr1, 1).await.expect("Failed to create junction1");
+    let _junction2 = SlowJunction::new(addr2, 2).await.expect("Failed to create junction2");
+
+    junction1.seed(addr2).await;
+
+    // Use the ping function
+    junction1.ping(2).await;
+
+    // Wait for pong to arrive
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Assert the pong count of junction1 is 1
+     assert_eq!(junction1.get_pong_counter().await, 1);
+}

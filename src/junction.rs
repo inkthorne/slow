@@ -38,6 +38,9 @@ pub struct SlowJunction {
 
     /// A notification to signal when a datagram is added to the receive queue.
     receive_notify: Arc<Notify>,
+
+    /// A counter for the number of pong messages received.
+    pong_counter: Arc<Mutex<u32>>,
 }
 
 impl Drop for SlowJunction {
@@ -69,6 +72,7 @@ impl SlowJunction {
             terminate: Arc::new(AtomicBool::new(false)),
             send_notify: Arc::new(Notify::new()),
             receive_notify: Arc::new(Notify::new()),
+            pong_counter: Arc::new(Mutex::new(0)),
         });
 
         let junction_clone = Arc::clone(&junction);
@@ -161,6 +165,16 @@ impl SlowJunction {
         }
     }
 
+    /// Updates the known junctions by adding the sender address.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender_addr` - The `SocketAddr` of the sender to be added.
+    async fn update_known_junctions(&self, sender_addr: SocketAddr) {
+        let mut known_junctions = self.known_junctions.lock().await;
+        known_junctions.insert(sender_addr);
+    }
+
     /// Handles a received datagram by forwarding it and updating the known junctions and received queue.
     ///
     /// # Arguments
@@ -169,16 +183,21 @@ impl SlowJunction {
     /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_datagram_received(&self, slow_datagram: SlowDatagram, sender_addr: SocketAddr) {
         // Always add sender to known junctions
-        {
-            let mut known_junctions = self.known_junctions.lock().await;
-            known_junctions.insert(sender_addr);
-        }
+        self.update_known_junctions(sender_addr).await;
 
         if slow_datagram.get_recipient_id() != self.recipient_id {
             self.forward(slow_datagram, sender_addr).await;
             return;
         }
         if let Some(json) = slow_datagram.get_json() {
+            if json["type"] == "ping" {
+                self.on_ping_received(json).await;
+                return;
+            }
+            if json["type"] == "pong" {
+                self.on_pong_received().await;
+                return;
+            }
             let json_packet = JsonPacket {
                 addr: sender_addr,
                 json,
@@ -243,5 +262,51 @@ impl SlowJunction {
         if let Some((slow_datagram, sender_addr)) = self.connection.recv_datagram().await {
             self.on_datagram_received(slow_datagram, sender_addr).await;
         }
+    }
+
+    /// Sends a pong message to a specific `SocketAddr`.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The `SocketAddr` to send the pong message to.
+    pub async fn pong(&self, recipient_id: u16) {
+        let message = serde_json::json!({"type": "pong", "sender_id": self.recipient_id});
+        self.send(message, recipient_id).await;
+    }
+
+    /// Sends a ping message to a specific `SocketAddr`.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The `SocketAddr` to send the ping message to.
+    pub async fn ping(&self, junction_id: u16) {
+        let message = serde_json::json!({"type": "ping", "sender_id": self.recipient_id});
+        self.send(message, junction_id).await;
+    }
+
+    /// Returns the current value of the pong counter.
+    ///
+    /// # Returns
+    ///
+    /// * `u32` - The current value of the pong counter.
+    pub async fn get_pong_counter(&self) -> u32 {
+        let counter = self.pong_counter.lock().await;
+        *counter
+    }
+
+    /// Increments the pong counter when a pong message is received.
+    async fn on_pong_received(&self) {
+        let mut counter = self.pong_counter.lock().await;
+        *counter += 1;
+    }
+
+    /// Handles a received ping message by sending a pong response.
+    ///
+    /// # Arguments
+    ///
+    /// * `json` - The JSON data of the received ping message.
+    async fn on_ping_received(&self, json: Value) {
+        let sender_id = json["sender_id"].as_u64().unwrap() as u16;
+        self.pong(sender_id).await;
     }
 }
