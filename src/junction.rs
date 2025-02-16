@@ -122,8 +122,8 @@ impl SlowJunction {
     /// * `recipient_id` - A &str representing the recipient ID.
     pub async fn send(&self, json: Value, recipient_id: &JunctionId) {
         let mut queue = self.send_queue.lock().await;
-        let datagram =
-            SlowDatagram::new(recipient_id.to_string(), &json).expect("Failed to create datagram");
+        let datagram = SlowDatagram::new(recipient_id.clone(), self.junction_id.clone(), &json)
+            .expect("Failed to create datagram");
         queue.push_back(datagram);
         self.send_notify.notify_one();
     }

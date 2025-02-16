@@ -5,7 +5,8 @@ use serde_json::Value;
 
 #[derive(Serialize, Deserialize)]
 pub struct SlowDatagramHeader {
-    pub recipient_id: JunctionId, // changed from String to JunctionId
+    pub recipient_id: JunctionId,
+    pub sender_id: JunctionId, // new field
     pub hops_remaining: u16,
     pub payload_size: u16,
 }
@@ -20,16 +21,18 @@ impl SlowDatagram {
     ///
     /// # Arguments
     ///
-    /// * `recipient_id` - A `String` representing the recipient.
+    /// * `recipient_id` - A `JunctionId` representing the recipient.
+    /// * `sender_id` - A `JunctionId` representing the sender.
     /// * `json` - A reference to a `Value` representing the JSON data.
     ///
     /// # Returns
     ///
     /// * `Option<Self>` - An optional `SlowDatagram` instance.
-    pub fn new(recipient_id: String, json: &Value) -> Option<Self> {
+    pub fn new(recipient_id: JunctionId, sender_id: JunctionId, json: &Value) -> Option<Self> {
         let payload = serde_json::to_vec(json).ok()?;
         let header = SlowDatagramHeader {
-            recipient_id: JunctionId::new(&recipient_id), // updated construction
+            recipient_id,
+            sender_id, // new field
             hops_remaining: 4,
             payload_size: payload.len() as u16,
         };
@@ -80,9 +83,8 @@ impl SlowDatagram {
     ///
     /// * `Vec<u8>` - A byte vector containing the packaged datagram.
     pub fn package(&self) -> Vec<u8> {
-        let header_data = bincode::serialize(&self.header).unwrap();
         let mut package = Vec::new();
-        package.extend_from_slice(&header_data);
+        bincode::serialize_into(&mut package, &self.header).unwrap();
         package.extend_from_slice(&self.payload);
         package
     }
