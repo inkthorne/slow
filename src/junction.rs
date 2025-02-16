@@ -8,18 +8,40 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 
+/// A `JunctionId` represents the unique identifier for a network junction.
+///
+/// This struct provides methods to create a new junction ID and format it for display.
 #[derive(Clone, Hash, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct JunctionId {
+    /// The unique identifier for the junction.
     id: String,
 }
 
 impl JunctionId {
+    /// Creates a new `JunctionId` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - A string slice that holds the ID.
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - A new instance of `JunctionId`.
     pub fn new(id: &str) -> Self {
         JunctionId { id: id.to_string() }
     }
 }
 
 impl std::fmt::Display for JunctionId {
+    /// Formats the `JunctionId` for display.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A mutable reference to a `std::fmt::Formatter`.
+    ///
+    /// # Returns
+    ///
+    /// * `std::fmt::Result` - The result of the formatting operation.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id)
     }
