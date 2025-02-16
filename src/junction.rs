@@ -7,6 +7,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub struct JunctionId {
+    id: u16,
+}
+
+impl JunctionId {
+    pub fn new(id: u16) -> Self {
+        JunctionId { id }
+    }
+}
+
 /// A `SlowJunction` represents a network junction that can send and receive datagrams, manage known junctions, and handle JSON packets.
 ///
 /// This struct provides methods to create a new junction, send and receive JSON packets, manage known junctions, and run the main loop.
@@ -218,7 +229,8 @@ impl SlowJunction {
         if !datagram.decrement_hops() {
             return;
         }
-        self.send_to_known_junctions(datagram, Some(sender_addr)).await;
+        self.send_to_known_junctions(datagram, Some(sender_addr))
+            .await;
     }
 
     /// Sends a `SlowDatagram` to all known junctions except the specified sender.
@@ -227,7 +239,11 @@ impl SlowJunction {
     ///
     /// * `datagram` - The `SlowDatagram` to be sent.
     /// * `exclude_addr` - The `SocketAddr` of the sender to be excluded.
-    pub async fn send_to_known_junctions(&self, datagram: SlowDatagram, exclude_addr: Option<SocketAddr>) {
+    pub async fn send_to_known_junctions(
+        &self,
+        datagram: SlowDatagram,
+        exclude_addr: Option<SocketAddr>,
+    ) {
         let known_junctions = self.known_junctions.lock().await;
         for addr in known_junctions.iter() {
             if Some(*addr) != exclude_addr {
