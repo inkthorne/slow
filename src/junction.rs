@@ -283,11 +283,9 @@ impl SlowJunction {
                 .send_datagram(&datagram, &best_route)
                 .await
                 .expect("Failed to send datagram");
-            self.log("Forwarding datagram to best route");
         } else {
             self.send_to_known_junctions(datagram, Some(sender_addr))
                 .await;
-            self.log("No route found, forwarding to all known junctions");
         }
     }
 
@@ -412,14 +410,6 @@ impl SlowJunction {
     pub async fn get_best_route(&self, junction_id: &JunctionId) -> Option<SocketAddr> {
         let route_table = self.route_table.lock().await;
         let best_route_addr = route_table.get_best_route(junction_id);
-
-        if let Some(best_route) = best_route_addr {
-            let log_msg = format!("Best route found for {}: {}", junction_id, best_route);
-            self.log(&log_msg);
-        } else {
-            self.log("No best route found");
-        }
-
         best_route_addr
     }
 }
