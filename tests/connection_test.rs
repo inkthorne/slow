@@ -13,7 +13,7 @@ async fn test_connection_pair() {
     let json = serde_json::json!({ "key": "value" });
     let sender_id = JunctionId::new("A");
     let recipient_id = JunctionId::new("B");
-    let datagram = SlowDatagram::new(recipient_id, sender_id, &json).unwrap();
+    let datagram = SlowDatagram::new_json_payload(recipient_id, sender_id, &json).unwrap();
 
     // Send datagram from connection1 to connection2
     connection1.send_datagram(&datagram, &addr2).await.unwrap();

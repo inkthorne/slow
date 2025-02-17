@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 pub struct RouteInfo {
-    pub hops: u16,
+    pub hops: u8,
     pub time: f32,
 }
 
@@ -18,7 +18,7 @@ impl Route {
         }
     }
 
-    pub fn add_route(&mut self, addr: SocketAddr, hops: u16, time: f32) {
+    pub fn add_route(&mut self, addr: SocketAddr, hops: u8, time: f32) {
         self.routes.insert(addr, RouteInfo { hops, time });
     }
 
@@ -45,7 +45,7 @@ impl RouteTable {
         &mut self,
         junction_id: &JunctionId,
         addr: SocketAddr,
-        hops: u16,
+        hops: u8,
         time: f32,
     ) {
         let route = self

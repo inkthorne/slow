@@ -159,8 +159,9 @@ impl SlowJunction {
     /// * `recipient_id` - A &str representing the recipient ID.
     pub async fn send(&self, json: Value, recipient_id: &JunctionId) {
         let mut queue = self.send_queue.lock().await;
-        let datagram = SlowDatagram::new(recipient_id.clone(), self.junction_id.clone(), &json)
-            .expect("Failed to create datagram");
+        let datagram =
+            SlowDatagram::new_json_payload(recipient_id.clone(), self.junction_id.clone(), &json)
+                .expect("Failed to create datagram");
         queue.push_back(datagram);
         self.send_notify.notify_one();
     }
@@ -398,9 +399,15 @@ impl SlowJunction {
     /// * `addr` - The `SocketAddr` of the junction.
     /// * `hops` - The number of hops to the junction.
     /// * `time` - The time to the junction.
-    async fn insert_route(&self, junction_id: &JunctionId, addr: SocketAddr, hops: u16, time: f32) {
+    async fn insert_route(
+        &self,
+        junction_id: &JunctionId,
+        addr: SocketAddr,
+        hop_count: u8,
+        time: f32,
+    ) {
         let mut route_table = self.route_table.lock().await;
-        route_table.insert_route(junction_id, addr, hops, time);
+        route_table.insert_route(junction_id, addr, hop_count, time);
     }
 
     /// Gets the best route to a junction.
