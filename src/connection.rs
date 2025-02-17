@@ -1,13 +1,6 @@
 use crate::datagram::SlowDatagram;
-use serde_json::Value;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct JsonPacket {
-    pub addr: SocketAddr,
-    pub json: Value,
-}
 
 /// A `SlowConnection` represents a UDP connection that can send and receive `SlowDatagram` packets.
 ///

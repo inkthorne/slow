@@ -1,4 +1,4 @@
-use crate::connection::{JsonPacket, SlowConnection};
+use crate::connection::SlowConnection;
 use crate::datagram::SlowDatagram;
 use crate::route::RouteTable;
 use serde_json::Value;
@@ -7,6 +7,12 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct JsonPacket {
+    pub addr: SocketAddr,
+    pub json: Value,
+}
 
 /// A `JunctionId` represents the unique identifier for a network junction.
 ///

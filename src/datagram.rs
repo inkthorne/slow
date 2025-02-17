@@ -3,16 +3,34 @@ use bincode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Represents the header of a SlowDatagram.
+///
+/// The header contains metadata about the datagram, such as the recipient ID,
+/// sender ID, hop count, and payload size.
 #[derive(Serialize, Deserialize)]
 pub struct SlowDatagramHeader {
+    /// The ID of the recipient junction.
     pub recipient_id: JunctionId,
+
+    /// The ID of the sender junction.
     pub sender_id: JunctionId,
+
+    /// The number of hops the datagram has taken.
     pub hop_count: u16,
+
+    /// The size of the payload in bytes.
     pub payload_size: u16,
 }
 
+/// Represents a datagram in the Slow network.
+///
+/// A SlowDatagram consists of a header and a payload. The header contains metadata
+/// about the datagram, while the payload contains the actual data being transmitted.
 pub struct SlowDatagram {
+    /// The header of the datagram containing metadata.
     pub header: SlowDatagramHeader,
+
+    /// The payload of the datagram containing the actual data.
     pub payload: Vec<u8>,
 }
 
@@ -62,6 +80,8 @@ impl SlowDatagram {
     /// # Returns
     ///
     /// * `Option<Self>` - An optional `SlowDatagram` instance.
+    ///
+    /// This function deserializes the header using `bincode` and checks the payload size.
     pub fn unpackage(data: &[u8]) -> Option<Self> {
         let mut cursor = std::io::Cursor::new(data);
         let header: SlowDatagramHeader = bincode::deserialize_from(&mut cursor).ok()?;
