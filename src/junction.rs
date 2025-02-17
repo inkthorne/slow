@@ -255,7 +255,7 @@ impl SlowJunction {
             self.forward(datagram, sender_addr).await;
             return;
         }
-        if let Some(json) = datagram.get_json() {
+        if let Some(json) = datagram.get_json_payload() {
             if json["type"] == "ping" {
                 self.on_ping_received(json).await;
                 return;

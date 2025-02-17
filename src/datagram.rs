@@ -57,20 +57,6 @@ impl SlowDatagram {
         Some(SlowDatagram { header, payload })
     }
 
-    /// Peeks at the header of a byte slice.
-    ///
-    /// # Arguments
-    ///
-    /// * `data` - A byte slice containing the datagram data.
-    ///
-    /// # Returns
-    ///
-    /// * `Option<SlowDatagramHeader>` - An optional `SlowDatagramHeader`.
-    pub fn peek_header(data: &[u8]) -> Option<SlowDatagramHeader> {
-        let header_data = &data[..std::mem::size_of::<SlowDatagramHeader>()];
-        bincode::deserialize(header_data).ok()
-    }
-
     /// Unpackages a byte slice into a `SlowDatagram`.
     ///
     /// # Arguments
@@ -86,15 +72,18 @@ impl SlowDatagram {
         let mut cursor = std::io::Cursor::new(data);
         let header: SlowDatagramHeader = bincode::deserialize_from(&mut cursor).ok()?;
         let header_size = cursor.position() as usize;
-        let json_data = &data[header_size..];
-        if header.payload_size as usize == json_data.len() {
-            Some(SlowDatagram {
+        let payload = &data[header_size..];
+
+        if header.payload_size as usize == payload.len() {
+            let datagram = SlowDatagram {
                 header,
-                payload: json_data.to_vec(),
-            })
-        } else {
-            None
+                payload: payload.to_vec(),
+            };
+
+            return Some(datagram);
         }
+
+        None
     }
 
     /// Packages the `SlowDatagram` into a byte vector.
@@ -114,7 +103,7 @@ impl SlowDatagram {
     /// # Returns
     ///
     /// * `Option<Value>` - An optional `Value` representing the JSON data.
-    pub fn get_json(&self) -> Option<Value> {
+    pub fn get_json_payload(&self) -> Option<Value> {
         serde_json::from_slice(&self.payload).ok()
     }
 

@@ -22,5 +22,5 @@ async fn test_connection_pair() {
     let received = connection2.recv_datagram().await.unwrap();
 
     assert_eq!(received.1, addr1);
-    assert_eq!(received.0.get_json().unwrap(), json);
+    assert_eq!(received.0.get_json_payload().unwrap(), json);
 }
