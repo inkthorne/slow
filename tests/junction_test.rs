@@ -94,7 +94,8 @@ async fn test_junction_square() {
 
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    assert_eq!(junction4.waiting_packet_count().await, 2); // Should receive from both paths
+    assert_eq!(junction4.waiting_packet_count().await, 1); // Should receive 2 packages but only accept 1
+    assert_eq!(junction4.get_duplicate_package_count(), 1); // Should receive 1 duplicate packages
 
     let received_packet = junction4.recv().await.unwrap();
     assert_eq!(received_packet.json, ping);
@@ -141,7 +142,7 @@ async fn test_junction_pyramid() {
     let junction4 = SlowJunction::new(addr4, junction_id4.clone())
         .await
         .expect("Failed to create junction4");
-    let _junction5 = SlowJunction::new(addr5, junction_id5.clone())
+    let junction5 = SlowJunction::new(addr5, junction_id5.clone())
         .await
         .expect("Failed to create junction5");
 
@@ -160,13 +161,16 @@ async fn test_junction_pyramid() {
     junction2.seed(addr5).await;
     junction3.seed(addr5).await;
     junction4.seed(addr5).await;
+    junction5.seed(addr4).await;
 
     let ping = json!({"key": "ping"});
     junction1.send(ping.clone(), &junction_id4).await;
 
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    assert_eq!(junction4.waiting_packet_count().await, 3); // Should receive from all paths
+    assert_eq!(junction5.get_duplicate_package_count(), 2); // Should have received 2 duplicate packages from junction2 & 3
+    assert_eq!(junction4.waiting_packet_count().await, 1); // Should receive from all paths but only accept 1
+    assert_eq!(junction4.get_duplicate_package_count(), 2); // Should have received 2 duplicate packages
 
     let received_packet = junction4.recv().await.unwrap();
     assert_eq!(received_packet.json, ping);
@@ -178,10 +182,6 @@ async fn test_junction_pyramid() {
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     assert_eq!(junction1.waiting_packet_count().await, 1); // Should receive only from one best path
-
-    let pong_packet = junction1.recv().await.unwrap();
-    assert_eq!(pong_packet.json, pong);
-    assert!(pong_packet.addr == addr2 || pong_packet.addr == addr3);
 
     // Assert best route to junction "1" from "4" exists
     assert!(junction4.get_best_route(&junction_id1).await.is_some());

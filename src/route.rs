@@ -9,17 +9,28 @@ pub struct RouteInfo {
 
 pub struct Route {
     routes: HashMap<SocketAddr, RouteInfo>,
+    last_package_id: u32,
 }
 
 impl Route {
     pub fn new() -> Self {
         Route {
             routes: HashMap::new(),
+            last_package_id: 0,
         }
     }
 
-    pub fn add_route(&mut self, addr: SocketAddr, hops: u8, time: f32) {
+    pub fn update_route(&mut self, addr: SocketAddr, hops: u8, time: f32, package_id: u32) -> u32 {
         self.routes.insert(addr, RouteInfo { hops, time });
+
+        if package_id > self.last_package_id {
+            let previous_package_id = self.last_package_id;
+            self.last_package_id = package_id;
+
+            return previous_package_id;
+        }
+
+        self.last_package_id
     }
 
     pub fn get_best_route(&self) -> Option<SocketAddr> {
@@ -41,18 +52,20 @@ impl RouteTable {
         }
     }
 
-    pub fn insert_route(
+    pub fn update_route(
         &mut self,
         junction_id: &JunctionId,
         addr: SocketAddr,
         hops: u8,
         time: f32,
-    ) {
+        package_id: u32,
+    ) -> u32 {
         let route = self
             .junctions
             .entry(junction_id.clone())
             .or_insert_with(Route::new);
-        route.add_route(addr, hops, time);
+
+        route.update_route(addr, hops, time, package_id)
     }
 
     pub fn get_best_route(&self, junction_id: &JunctionId) -> Option<SocketAddr> {

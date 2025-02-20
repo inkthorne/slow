@@ -21,6 +21,9 @@ pub struct SlowDatagramHeader {
     /// The type of data contained in the payload: binary = 0, JSON = 1.
     pub payload_type: u8,
 
+    /// An incrementing number that uniquely identifies a datagram from the specific sender.
+    pub package_id: u32,
+
     /// The size of the payload in bytes.
     pub payload_size: u16,
 }
@@ -60,6 +63,7 @@ impl SlowDatagram {
             sender_id,
             hop_count: 0,
             payload_type: 1,
+            package_id: 0,
             payload_size: payload.len() as u16,
         };
 
@@ -88,6 +92,7 @@ impl SlowDatagram {
             sender_id,
             hop_count: 0,
             payload_type: 0,
+            package_id: 0,
             payload_size: payload.len() as u16,
         };
 
@@ -179,5 +184,23 @@ impl SlowDatagram {
     /// * `u16` - The hop count.
     pub fn get_hop_count(&self) -> u8 {
         self.header.hop_count
+    }
+
+    /// Sets the `package_id` field.
+    ///
+    /// # Arguments
+    ///
+    /// * `package_id` - A `u32` representing the new package ID.
+    pub fn set_package_id(&mut self, package_id: u32) {
+        self.header.package_id = package_id;
+    }
+
+    /// Returns the `package_id` from the header.
+    ///
+    /// # Returns
+    ///
+    /// * `u32` - The package ID.
+    pub fn get_package_id(&self) -> u32 {
+        self.header.package_id
     }
 }

@@ -4,7 +4,7 @@ use crate::route::RouteTable;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 
@@ -91,6 +91,12 @@ pub struct SlowJunction {
 
     /// The route table for the junction.
     route_table: Arc<Mutex<RouteTable>>,
+
+    /// A counter for the number of packages sent.
+    sent_package_count: AtomicU32,
+
+    /// A counter for the number of duplicate packages rejected.
+    duplicate_package_count: AtomicUsize,
 }
 
 impl Drop for SlowJunction {
@@ -124,6 +130,8 @@ impl SlowJunction {
             receive_notify: Arc::new(Notify::new()),
             pong_counter: Arc::new(Mutex::new(0)),
             route_table: Arc::new(Mutex::new(RouteTable::new())),
+            sent_package_count: AtomicU32::new(0),
+            duplicate_package_count: AtomicUsize::new(0),
         });
 
         let junction_clone = Arc::clone(&junction);
@@ -201,6 +209,15 @@ impl SlowJunction {
         queue.len()
     }
 
+    /// Returns the number of duplicate packets received & rejected.
+    ///
+    /// # Returns
+    ///
+    /// * `usize` - The number of duplicate packets rejected.
+    pub fn get_duplicate_package_count(&self) -> usize {
+        self.duplicate_package_count.load(Ordering::SeqCst)
+    }
+
     /// Waits for a notification that there are items in the received queue and returns the JSON packet.
     ///
     /// # Returns
@@ -233,13 +250,17 @@ impl SlowJunction {
     ///
     /// * `slow_datagram` - A reference to the `SlowDatagram` that was received.
     /// * `sender_addr` - The `SocketAddr` of the sender to be added.
-    async fn update_route_table(&self, slow_datagram: &SlowDatagram, sender_addr: SocketAddr) {
+    async fn update_route_table(&self, datagram: &SlowDatagram, sender_addr: SocketAddr) -> u32 {
         let mut known_junctions = self.known_junctions.lock().await;
         known_junctions.insert(sender_addr);
-        let sender_id = slow_datagram.get_sender_id();
-        let hop_count = slow_datagram.get_hop_count();
-        self.insert_route(sender_id, sender_addr, hop_count, 0.0)
-            .await;
+
+        let junction_id = datagram.get_sender_id();
+        let hop_count = datagram.get_hop_count();
+        let package_id = datagram.get_package_id();
+        let time = 0.0;
+
+        let mut route_table = self.route_table.lock().await;
+        route_table.update_route(junction_id, sender_addr, hop_count, time, package_id)
     }
 
     /// Handles a received datagram by forwarding it and updating the known junctions and received queue.
@@ -250,7 +271,13 @@ impl SlowJunction {
     /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_datagram_received(&self, datagram: SlowDatagram, sender_addr: SocketAddr) {
         // Update the route table with the sender address.
-        self.update_route_table(&datagram, sender_addr).await;
+        let last_package_id = self.update_route_table(&datagram, sender_addr).await;
+
+        // If the datagram has already been processed, return.
+        if last_package_id >= datagram.get_package_id() {
+            self.duplicate_package_count.fetch_add(1, Ordering::SeqCst);
+            return;
+        }
 
         if *datagram.get_recipient_id() != self.junction_id {
             self.forward(datagram, sender_addr).await;
@@ -269,6 +296,7 @@ impl SlowJunction {
                 addr: sender_addr,
                 json,
             };
+
             let mut queue = self.received_queue.lock().await;
             queue.push_back(json_packet);
             self.receive_notify.notify_one();
@@ -327,10 +355,15 @@ impl SlowJunction {
     async fn pump_send(&self) {
         self.send_notify.notified().await;
         let mut queue = self.send_queue.lock().await;
-        while let Some(datagram) = queue.pop_front() {
+
+        while let Some(mut datagram) = queue.pop_front() {
+            let package_id = self.sent_package_count.fetch_add(1, Ordering::SeqCst) + 1;
+            datagram.set_package_id(package_id);
+
             if self.send_to_best_route(&datagram).await {
                 continue;
             }
+
             self.send_to_known_junctions(datagram, None).await;
         }
     }
@@ -389,25 +422,6 @@ impl SlowJunction {
         let sender_str = json["sender_id"].as_str().unwrap();
         let sender_id = JunctionId::new(sender_str);
         self.pong(&sender_id).await;
-    }
-
-    /// Inserts a route into the route table.
-    ///
-    /// # Arguments
-    ///
-    /// * `junction_id` - The `JunctionId` of the junction.
-    /// * `addr` - The `SocketAddr` of the junction.
-    /// * `hops` - The number of hops to the junction.
-    /// * `time` - The time to the junction.
-    async fn insert_route(
-        &self,
-        junction_id: &JunctionId,
-        addr: SocketAddr,
-        hop_count: u8,
-        time: f32,
-    ) {
-        let mut route_table = self.route_table.lock().await;
-        route_table.insert_route(junction_id, addr, hop_count, time);
     }
 
     /// Gets the best route to a junction.
