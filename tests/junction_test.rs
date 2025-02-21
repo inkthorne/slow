@@ -31,16 +31,16 @@ async fn test_junction_line() {
     let ping = json!({"key": "ping"});
     junction1.send(ping.clone(), &JunctionId::new("4")).await;
 
-    // Delay before receiving the packet
+    // Delay before receiving the package
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    // Check waiting packet count before receiving
-    assert_eq!(junction4.waiting_packet_count().await, 1);
+    // Check waiting package count before receiving
+    assert_eq!(junction4.get_waiting_package_count().await, 1);
 
-    // Check if the datagram was received by junction4
-    let received_packet = junction4.recv().await.unwrap();
-    assert_eq!(received_packet.json, ping);
-    assert_eq!(received_packet.addr, addr3);
+    // Check if the package was received by junction4
+    let received_package = junction4.recv().await.unwrap();
+    assert_eq!(received_package.json, ping);
+    assert_eq!(received_package.addr, addr3);
 
     // Send pong response back to junction1
     let pong = json!({"key": "pong"});
@@ -49,13 +49,13 @@ async fn test_junction_line() {
     // Wait for pong to arrive
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    // Check waiting packet count before receiving pong
-    assert_eq!(junction1.waiting_packet_count().await, 1);
+    // Check waiting package count before receiving pong
+    assert_eq!(junction1.get_waiting_package_count().await, 1);
 
     // Verify junction1 received the pong
-    let pong_packet = junction1.recv().await.unwrap();
-    assert_eq!(pong_packet.json, pong);
-    assert_eq!(pong_packet.addr, addr2);
+    let pong_package = junction1.recv().await.unwrap();
+    assert_eq!(pong_package.json, pong);
+    assert_eq!(pong_package.addr, addr2);
 }
 
 #[tokio::test]
@@ -94,23 +94,23 @@ async fn test_junction_square() {
 
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    assert_eq!(junction4.waiting_packet_count().await, 1); // Should receive 2 packages but only accept 1
+    assert_eq!(junction4.get_waiting_package_count().await, 1); // Should receive 2 packages but only accept 1
     assert_eq!(junction4.get_duplicate_package_count(), 1); // Should receive 1 duplicate packages
 
-    let received_packet = junction4.recv().await.unwrap();
-    assert_eq!(received_packet.json, ping);
-    assert!(received_packet.addr == addr2 || received_packet.addr == addr3);
+    let received_package = junction4.recv().await.unwrap();
+    assert_eq!(received_package.json, ping);
+    assert!(received_package.addr == addr2 || received_package.addr == addr3);
 
     let pong = json!({"key": "pong"});
     junction4.send(pong.clone(), &junction_id1).await;
 
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    assert_eq!(junction1.waiting_packet_count().await, 1); // Should receive from onlye best path
+    assert_eq!(junction1.get_waiting_package_count().await, 1); // Should receive from onlye best path
 
-    let pong_packet = junction1.recv().await.unwrap();
-    assert_eq!(pong_packet.json, pong);
-    assert!(pong_packet.addr == addr2 || pong_packet.addr == addr3);
+    let pong_package = junction1.recv().await.unwrap();
+    assert_eq!(pong_package.json, pong);
+    assert!(pong_package.addr == addr2 || pong_package.addr == addr3);
 
     // Assert best route to junction "1" from "4" exists
     assert!(junction4.get_best_route(&junction_id1).await.is_some());
@@ -169,19 +169,19 @@ async fn test_junction_pyramid() {
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     assert_eq!(junction5.get_duplicate_package_count(), 2); // Should have received 2 duplicate packages from junction2 & 3
-    assert_eq!(junction4.waiting_packet_count().await, 1); // Should receive from all paths but only accept 1
+    assert_eq!(junction4.get_waiting_package_count().await, 1); // Should receive from all paths but only accept 1
     assert_eq!(junction4.get_duplicate_package_count(), 2); // Should have received 2 duplicate packages
 
-    let received_packet = junction4.recv().await.unwrap();
-    assert_eq!(received_packet.json, ping);
-    assert!(received_packet.addr == addr2 || received_packet.addr == addr3);
+    let received_package = junction4.recv().await.unwrap();
+    assert_eq!(received_package.json, ping);
+    assert!(received_package.addr == addr2 || received_package.addr == addr3);
 
     let pong = json!({"key": "pong"});
     junction4.send(pong.clone(), &junction_id1).await;
 
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    assert_eq!(junction1.waiting_packet_count().await, 1); // Should receive only from one best path
+    assert_eq!(junction1.get_waiting_package_count().await, 1); // Should receive only from one best path
 
     // Assert best route to junction "1" from "4" exists
     assert!(junction4.get_best_route(&junction_id1).await.is_some());
@@ -204,11 +204,11 @@ async fn test_junction_pair() {
     let ping = json!({"key": "ping"});
     junction1.send(ping.clone(), &JunctionId::new("2")).await;
     tokio::time::sleep(Duration::from_millis(250)).await;
-    assert_eq!(junction2.waiting_packet_count().await, 1);
+    assert_eq!(junction2.get_waiting_package_count().await, 1);
 
-    let received_packet = junction2.recv().await.unwrap();
-    assert_eq!(received_packet.json, ping);
-    assert_eq!(received_packet.addr, addr1);
+    let received_package = junction2.recv().await.unwrap();
+    assert_eq!(received_package.json, ping);
+    assert_eq!(received_package.addr, addr1);
 
     // Send pong response back to junction1
     let pong = json!({"key": "pong"});
@@ -217,13 +217,13 @@ async fn test_junction_pair() {
     // Wait for pong to arrive
     tokio::time::sleep(Duration::from_millis(250)).await;
 
-    // Check waiting packet count before receiving pong
-    assert_eq!(junction1.waiting_packet_count().await, 1);
+    // Check waiting package count before receiving pong
+    assert_eq!(junction1.get_waiting_package_count().await, 1);
 
     // Verify junction1 received the pong
-    let pong_packet = junction1.recv().await.unwrap();
-    assert_eq!(pong_packet.json, pong);
-    assert_eq!(pong_packet.addr, addr2);
+    let pong_package = junction1.recv().await.unwrap();
+    assert_eq!(pong_package.json, pong);
+    assert_eq!(pong_package.addr, addr2);
 }
 
 #[tokio::test]

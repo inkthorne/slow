@@ -1,17 +1,17 @@
-use crate::datagram::SlowDatagram;
+use crate::datagram::SlowPackage;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::net::UdpSocket;
 
-/// A `SlowConnection` represents a UDP connection that can send and receive `SlowDatagram` packets.
+/// A `SlowConnection` represents a UDP connection that can send and receive `SlowPackage` packets.
 ///
-/// This struct provides methods to create a new connection, send datagrams, receive datagrams, and retrieve the local address of the socket.
+/// This struct provides methods to create a new connection, send packages, receive packages, and retrieve the local address of the socket.
 /// It is designed to work asynchronously using the Tokio runtime.
 pub struct SlowConnection {
     /// The UDP socket used for the connection.
     socket: UdpSocket,
 
-    /// The count of datagrams sent.
+    /// The count of packages sent.
     send_count: AtomicU32,
 }
 
@@ -33,38 +33,38 @@ impl SlowConnection {
         })
     }
 
-    /// Sends a `SlowDatagram` to the specified address.
+    /// Sends a `SlowPackage` to the specified address.
     ///
     /// # Arguments
     ///
-    /// * `datagram` - A reference to the `SlowDatagram` to send.
+    /// * `package` - A reference to the `SlowPackage` to send.
     /// * `recipient_addr` - A reference to the `SocketAddr` of the recipient.
     ///
     /// # Returns
     ///
     /// * `Result<(), std::io::Error>` - A result indicating success or an error if sending fails.
-    pub async fn send_datagram(
+    pub async fn send_package(
         &self,
-        datagram: &SlowDatagram,
+        package: &SlowPackage,
         recipient_addr: &SocketAddr,
     ) -> std::io::Result<()> {
-        let packaged_data = datagram.package();
+        let packaged_data = package.package();
         self.socket.send_to(&packaged_data, *recipient_addr).await?;
         self.send_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
-    /// Receives a datagram from the socket.
+    /// Receives a package from the socket.
     ///
     /// # Returns
     ///
-    /// * `Option<(SlowDatagram, SocketAddr)>` - An option containing the received datagram and the source address, or `None` if an error occurs.
-    pub async fn recv_datagram(&self) -> Option<(SlowDatagram, SocketAddr)> {
+    /// * `Option<(SlowPackage, SocketAddr)>` - An option containing the received package and the source address, or `None` if an error occurs.
+    pub async fn recv_package(&self) -> Option<(SlowPackage, SocketAddr)> {
         let mut buf = [0; 4096];
         match self.socket.recv_from(&mut buf).await {
             Ok((amt, src)) => {
-                let datagram = &buf[..amt];
-                SlowDatagram::unpackage(datagram).map(|d| (d, src))
+                let package = &buf[..amt];
+                SlowPackage::unpackage(package).map(|d| (d, src))
             }
             Err(_) => None,
         }

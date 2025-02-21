@@ -3,45 +3,45 @@ use bincode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Represents the header of a SlowDatagram.
+/// Represents the header of a SlowPackage.
 ///
-/// The header contains metadata about the datagram, such as the recipient ID,
+/// The header contains metadata about the package, such as the recipient ID,
 /// sender ID, hop count, and payload size.
 #[derive(Serialize, Deserialize)]
-pub struct SlowDatagramHeader {
+pub struct SlowPackageHeader {
     /// The ID of the recipient junction.
     pub recipient_id: JunctionId,
 
     /// The ID of the sender junction.
     pub sender_id: JunctionId,
 
-    /// The number of hops the datagram has taken.
+    /// The number of hops the package has taken.
     pub hop_count: u8,
 
     /// The type of data contained in the payload: binary = 0, JSON = 1.
     pub payload_type: u8,
 
-    /// An incrementing number that uniquely identifies a datagram from the specific sender.
+    /// An incrementing number that uniquely identifies a package from the specific sender.
     pub package_id: u32,
 
     /// The size of the payload in bytes.
     pub payload_size: u16,
 }
 
-/// Represents a datagram in the Slow network.
+/// Represents a package in the Slow network.
 ///
-/// A SlowDatagram consists of a header and a payload. The header contains metadata
-/// about the datagram, while the payload contains the actual data being transmitted.
-pub struct SlowDatagram {
-    /// The header of the datagram containing metadata.
-    pub header: SlowDatagramHeader,
+/// A SlowPackage consists of a header and a payload. The header contains metadata
+/// about the package, while the payload contains the actual data being transmitted.
+pub struct SlowPackage {
+    /// The header of the package containing metadata.
+    pub header: SlowPackageHeader,
 
-    /// The payload of the datagram containing the actual data.
+    /// The payload of the package containing the actual data.
     pub payload: Vec<u8>,
 }
 
-impl SlowDatagram {
-    /// Creates a new `SlowDatagram` instance.
+impl SlowPackage {
+    /// Creates a new `SlowPackage` instance.
     ///
     /// # Arguments
     ///
@@ -51,14 +51,14 @@ impl SlowDatagram {
     ///
     /// # Returns
     ///
-    /// * `Option<Self>` - An optional `SlowDatagram` instance.
+    /// * `Option<Self>` - An optional `SlowPackage` instance.
     pub fn new_json_payload(
         recipient_id: JunctionId,
         sender_id: JunctionId,
         json: &Value,
     ) -> Option<Self> {
         let payload = serde_json::to_vec(json).ok()?;
-        let header = SlowDatagramHeader {
+        let header = SlowPackageHeader {
             recipient_id,
             sender_id,
             hop_count: 0,
@@ -67,10 +67,10 @@ impl SlowDatagram {
             payload_size: payload.len() as u16,
         };
 
-        Some(SlowDatagram { header, payload })
+        Some(SlowPackage { header, payload })
     }
 
-    /// Creates a new `SlowDatagram` instance.
+    /// Creates a new `SlowPackage` instance.
     ///
     /// # Arguments
     ///
@@ -80,14 +80,14 @@ impl SlowDatagram {
     ///
     /// # Returns
     ///
-    /// * `Option<Self>` - An optional `SlowDatagram` instance.
+    /// * `Option<Self>` - An optional `SlowPackage` instance.
     pub fn new_bin_payload(
         recipient_id: JunctionId,
         sender_id: JunctionId,
         bin: &[u8],
     ) -> Option<Self> {
         let payload = bin.to_vec();
-        let header = SlowDatagramHeader {
+        let header = SlowPackageHeader {
             recipient_id,
             sender_id,
             hop_count: 0,
@@ -96,43 +96,43 @@ impl SlowDatagram {
             payload_size: payload.len() as u16,
         };
 
-        Some(SlowDatagram { header, payload })
+        Some(SlowPackage { header, payload })
     }
 
-    /// Unpackages a byte slice into a `SlowDatagram`.
+    /// Unpackages a byte slice into a `SlowPackage`.
     ///
     /// # Arguments
     ///
-    /// * `data` - A byte slice containing the datagram data.
+    /// * `data` - A byte slice containing the package data.
     ///
     /// # Returns
     ///
-    /// * `Option<Self>` - An optional `SlowDatagram` instance.
+    /// * `Option<Self>` - An optional `SlowPackage` instance.
     ///
     /// This function deserializes the header using `bincode` and checks the payload size.
     pub fn unpackage(data: &[u8]) -> Option<Self> {
         let mut cursor = std::io::Cursor::new(data);
-        let header: SlowDatagramHeader = bincode::deserialize_from(&mut cursor).ok()?;
+        let header: SlowPackageHeader = bincode::deserialize_from(&mut cursor).ok()?;
         let header_size = cursor.position() as usize;
         let payload = &data[header_size..];
 
         if header.payload_size as usize == payload.len() {
-            let datagram = SlowDatagram {
+            let package = SlowPackage {
                 header,
                 payload: payload.to_vec(),
             };
 
-            return Some(datagram);
+            return Some(package);
         }
 
         None
     }
 
-    /// Packages the `SlowDatagram` into a byte vector.
+    /// Packages the `SlowPackage` into a byte vector.
     ///
     /// # Returns
     ///
-    /// * `Vec<u8>` - A byte vector containing the packaged datagram.
+    /// * `Vec<u8>` - A byte vector containing the packaged package.
     pub fn package(&self) -> Vec<u8> {
         let mut package = Vec::new();
         bincode::serialize_into(&mut package, &self.header).unwrap();

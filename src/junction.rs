@@ -1,5 +1,5 @@
 use crate::connection::SlowConnection;
-use crate::datagram::SlowDatagram;
+use crate::datagram::SlowPackage;
 use crate::route::RouteTable;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
@@ -53,7 +53,7 @@ impl std::fmt::Display for JunctionId {
     }
 }
 
-/// A `SlowJunction` represents a network junction that can send and receive datagrams, manage known junctions,
+/// A `SlowJunction` represents a network junction that can send and receive packages, manage known junctions,
 /// and handle JSON packets.
 ///
 /// This struct provides methods to create a new junction, send and receive JSON packets, manage known junctions,
@@ -65,8 +65,8 @@ pub struct SlowJunction {
     /// A set of known junction addresses.
     known_junctions: Arc<Mutex<HashSet<SocketAddr>>>,
 
-    /// A queue of datagrams to be sent.
-    send_queue: Arc<Mutex<VecDeque<SlowDatagram>>>,
+    /// A queue of packages to be sent.
+    send_queue: Arc<Mutex<VecDeque<SlowPackage>>>,
 
     /// A queue of received JSON packets.
     received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
@@ -80,10 +80,10 @@ pub struct SlowJunction {
     /// A flag to indicate if the thread should terminate.
     terminate: Arc<AtomicBool>,
 
-    /// A notification to signal when a datagram is added to the send queue.
+    /// A notification to signal when a package is added to the send queue.
     send_notify: Arc<Notify>,
 
-    /// A notification to signal when a datagram is added to the receive queue.
+    /// A notification to signal when a package is added to the receive queue.
     receive_notify: Arc<Notify>,
 
     /// A counter for the number of pong messages received.
@@ -167,10 +167,10 @@ impl SlowJunction {
     /// * `recipient_id` - A &str representing the recipient ID.
     pub async fn send(&self, json: Value, recipient_id: &JunctionId) {
         let mut queue = self.send_queue.lock().await;
-        let datagram =
-            SlowDatagram::new_json_payload(recipient_id.clone(), self.junction_id.clone(), &json)
-                .expect("Failed to create datagram");
-        queue.push_back(datagram);
+        let package =
+            SlowPackage::new_json_payload(recipient_id.clone(), self.junction_id.clone(), &json)
+                .expect("Failed to create package");
+        queue.push_back(package);
         self.send_notify.notify_one();
     }
 
@@ -204,7 +204,7 @@ impl SlowJunction {
     /// # Returns
     ///
     /// * `usize` - The number of packets in the received queue.
-    pub async fn waiting_packet_count(&self) -> usize {
+    pub async fn get_waiting_package_count(&self) -> usize {
         let queue = self.received_queue.lock().await;
         queue.len()
     }
@@ -223,7 +223,7 @@ impl SlowJunction {
     /// # Returns
     ///
     /// * `Option<JsonPacket>` - An optional JSON packet if available.
-    pub async fn wait_for_datagram(&self) -> Option<JsonPacket> {
+    pub async fn wait_for_package(&self) -> Option<JsonPacket> {
         self.receive_notify.notified().await;
         let mut queue = self.received_queue.lock().await;
         queue.pop_front()
@@ -248,42 +248,42 @@ impl SlowJunction {
     ///
     /// # Arguments
     ///
-    /// * `slow_datagram` - A reference to the `SlowDatagram` that was received.
+    /// * `package` - A reference to the `SlowPackage` that was received.
     /// * `sender_addr` - The `SocketAddr` of the sender to be added.
-    async fn update_route_table(&self, datagram: &SlowDatagram, sender_addr: SocketAddr) -> u32 {
+    async fn update_route_table(&self, package: &SlowPackage, sender_addr: SocketAddr) -> u32 {
         let mut known_junctions = self.known_junctions.lock().await;
         known_junctions.insert(sender_addr);
 
-        let junction_id = datagram.get_sender_id();
-        let hop_count = datagram.get_hop_count();
-        let package_id = datagram.get_package_id();
+        let junction_id = package.get_sender_id();
+        let hop_count = package.get_hop_count();
+        let package_id = package.get_package_id();
         let time = 0.0;
 
         let mut route_table = self.route_table.lock().await;
         route_table.update_route(junction_id, sender_addr, hop_count, time, package_id)
     }
 
-    /// Handles a received datagram by forwarding it and updating the known junctions and received queue.
+    /// Handles a received package by forwarding it and updating the known junctions and received queue.
     ///
     /// # Arguments
     ///
-    /// * `datagram` - A `SlowDatagram` that was received.
+    /// * `package` - A `SlowPackage` that was received.
     /// * `sender_addr` - The `SocketAddr` of the sender.
-    async fn on_datagram_received(&self, datagram: SlowDatagram, sender_addr: SocketAddr) {
+    async fn on_package_received(&self, package: SlowPackage, sender_addr: SocketAddr) {
         // Update the route table with the sender address.
-        let last_package_id = self.update_route_table(&datagram, sender_addr).await;
+        let last_package_id = self.update_route_table(&package, sender_addr).await;
 
-        // If the datagram has already been processed, return.
-        if last_package_id >= datagram.get_package_id() {
+        // If the package has already been processed, return.
+        if last_package_id >= package.get_package_id() {
             self.duplicate_package_count.fetch_add(1, Ordering::SeqCst);
             return;
         }
 
-        if *datagram.get_recipient_id() != self.junction_id {
-            self.forward(datagram, sender_addr).await;
+        if *package.get_recipient_id() != self.junction_id {
+            self.forward(package, sender_addr).await;
             return;
         }
-        if let Some(json) = datagram.get_json_payload() {
+        if let Some(json) = package.get_json_payload() {
             if json["type"] == "ping" {
                 self.on_ping_received(json).await;
                 return;
@@ -303,75 +303,75 @@ impl SlowJunction {
         }
     }
 
-    /// Forwards a `SlowDatagram` to all known junctions except the sender.
+    /// Forwards a `SlowPackage` to all known junctions except the sender.
     ///
     /// # Arguments
     ///
-    /// * `datagram` - A `SlowDatagram` to be forwarded.
+    /// * `package` - A `SlowPackage` to be forwarded.
     /// * `sender_addr` - The `SocketAddr` of the sender.
-    async fn forward(&self, mut datagram: SlowDatagram, sender_addr: SocketAddr) {
-        if datagram.increment_hops() >= 4 {
+    async fn forward(&self, mut package: SlowPackage, sender_addr: SocketAddr) {
+        if package.increment_hops() >= 4 {
             return;
         }
-        if self.send_to_best_route(&datagram).await {
+        if self.send_to_best_route(&package).await {
             return;
         }
-        self.send_to_known_junctions(datagram, Some(sender_addr))
+        self.send_to_known_junctions(package, Some(sender_addr))
             .await;
     }
 
-    /// Sends a `SlowDatagram` to all known junctions except the specified sender.
+    /// Sends a `SlowPackage` to all known junctions except the specified sender.
     ///
     /// # Arguments
     ///
-    /// * `datagram` - The `SlowDatagram` to be sent.
+    /// * `package` - The `SlowPackage` to be sent.
     /// * `exclude_addr` - The `SocketAddr` of the sender to be excluded.
     pub async fn send_to_known_junctions(
         &self,
-        datagram: SlowDatagram,
+        package: SlowPackage,
         exclude_addr: Option<SocketAddr>,
     ) {
         let known_junctions = self.known_junctions.lock().await;
         for addr in known_junctions.iter() {
             if Some(*addr) != exclude_addr {
                 self.connection
-                    .send_datagram(&datagram, addr)
+                    .send_package(&package, addr)
                     .await
-                    .expect("Failed to send datagram");
+                    .expect("Failed to send package");
             }
         }
     }
 
-    /// Waits for a datagram via `connection.recv_datagram()` and returns it.
+    /// Waits for a package via `connection.recv_package()` and returns it.
     ///
     /// # Returns
     ///
-    /// * `Option<(SlowDatagram, SocketAddr)>` - An optional tuple containing the received datagram and sender address.
-    pub async fn read_datagram(&self) -> Option<(SlowDatagram, SocketAddr)> {
-        self.connection.recv_datagram().await
+    /// * `Option<(SlowPackage, SocketAddr)>` - An optional tuple containing the received package and sender address.
+    pub async fn read_package(&self) -> Option<(SlowPackage, SocketAddr)> {
+        self.connection.recv_package().await
     }
 
-    /// Sends all queued datagrams to known junctions, excluding the address `0.0.0.0:0`.
+    /// Sends all queued packages to known junctions, excluding the address `0.0.0.0:0`.
     async fn pump_send(&self) {
         self.send_notify.notified().await;
         let mut queue = self.send_queue.lock().await;
 
-        while let Some(mut datagram) = queue.pop_front() {
+        while let Some(mut package) = queue.pop_front() {
             let package_id = self.sent_package_count.fetch_add(1, Ordering::SeqCst) + 1;
-            datagram.set_package_id(package_id);
+            package.set_package_id(package_id);
 
-            if self.send_to_best_route(&datagram).await {
+            if self.send_to_best_route(&package).await {
                 continue;
             }
 
-            self.send_to_known_junctions(datagram, None).await;
+            self.send_to_known_junctions(package, None).await;
         }
     }
 
-    /// Receives a datagram via `connection.recv_datagram()` and processes it.
+    /// Receives a package via `connection.recv_package()` and processes it.
     async fn pump_recv(&self) {
-        if let Some((slow_datagram, sender_addr)) = self.connection.recv_datagram().await {
-            self.on_datagram_received(slow_datagram, sender_addr).await;
+        if let Some((slow_package, sender_addr)) = self.connection.recv_package().await {
+            self.on_package_received(slow_package, sender_addr).await;
         }
     }
 
@@ -439,17 +439,17 @@ impl SlowJunction {
         best_route_addr
     }
 
-    /// Sends a `SlowDatagram` to the best route available.
+    /// Sends a `SlowPackage` to the best route available.
     ///
     /// # Arguments
     ///
-    /// * `datagram` - The `SlowDatagram` to be sent.
-    pub async fn send_to_best_route(&self, datagram: &SlowDatagram) -> bool {
-        if let Some(best_route) = self.get_best_route(datagram.get_recipient_id()).await {
+    /// * `package` - The `SlowPackage` to be sent.
+    pub async fn send_to_best_route(&self, package: &SlowPackage) -> bool {
+        if let Some(best_route) = self.get_best_route(package.get_recipient_id()).await {
             self.connection
-                .send_datagram(datagram, &best_route)
+                .send_package(package, &best_route)
                 .await
-                .expect("Failed to send datagram");
+                .expect("Failed to send package");
 
             return true;
         }
