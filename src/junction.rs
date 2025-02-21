@@ -1,5 +1,5 @@
 use crate::connection::SlowConnection;
-use crate::datagram::SlowPackage;
+use crate::package::SlowPackage;
 use crate::route::RouteTable;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};

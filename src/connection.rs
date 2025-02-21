@@ -1,4 +1,4 @@
-use crate::datagram::SlowPackage;
+use crate::package::SlowPackage;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::net::UdpSocket;

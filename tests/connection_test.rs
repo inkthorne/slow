@@ -1,6 +1,6 @@
 use slow::connection::SlowConnection;
-use slow::datagram::SlowPackage;
 use slow::junction::JunctionId;
+use slow::package::SlowPackage;
 use std::net::SocketAddr;
 
 #[tokio::test]
