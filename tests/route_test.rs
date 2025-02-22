@@ -1,6 +1,34 @@
 use slow::junction::JunctionId;
-use slow::route::RouteTable;
+use slow::route::{RoutePackageInfo, RouteTable};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+#[test]
+fn test_route_info() {
+    let mut route_package_info = RoutePackageInfo::new();
+    let success = route_package_info.update(132);
+    assert!(success == true);
+
+    let success = route_package_info.update(3);
+    assert!(success == false);
+
+    let success = route_package_info.update(101);
+    assert!(success == true);
+
+    let success = route_package_info.update(100);
+    assert!(success == false);
+
+    let success = route_package_info.update(33);
+    assert!(success == false);
+
+    let success = route_package_info.update(134);
+    assert!(success == true);
+
+    let success = route_package_info.update(133);
+    assert!(success == true);
+
+    let success = route_package_info.update(132);
+    assert!(success == false);
+}
 
 #[test]
 fn test_update_and_get_best_route() {

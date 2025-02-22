@@ -2,6 +2,51 @@ use crate::junction::JunctionId;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+pub struct RoutePackageInfo {
+    greatest_package_id: u32,
+    package_bitfield: u32,
+}
+
+impl RoutePackageInfo {
+    pub fn new() -> Self {
+        RoutePackageInfo {
+            greatest_package_id: 0,
+            package_bitfield: 0,
+        }
+    }
+
+    pub fn update(&mut self, package_id: u32) -> bool {
+        let shift = package_id as i32 - self.greatest_package_id as i32;
+
+        if shift == 0 || shift < -31 {
+            return false;
+        }
+
+        if shift < 0 {
+            let mask = 1 << -shift;
+
+            if self.package_bitfield & mask != 0 {
+                return false;
+            }
+
+            self.package_bitfield |= mask;
+            return true;
+        }
+
+        if shift > 31 {
+            self.package_bitfield = 0;
+            self.package_bitfield |= 1;
+        } else {
+            self.package_bitfield <<= shift;
+            self.package_bitfield |= 1;
+        }
+
+        self.greatest_package_id = package_id;
+
+        true
+    }
+}
+
 /// Represents information about a route, including the number of hops and the time taken.
 pub struct RouteInfo {
     /// The number of hops to reach the destination.
@@ -17,7 +62,9 @@ pub struct Route {
     routes: HashMap<SocketAddr, RouteInfo>,
 
     /// The ID of the last package.
-    last_package_id: u32,
+    greatest_package_id: u32,
+
+    package_info: RoutePackageInfo,
 }
 
 impl Route {
@@ -25,7 +72,8 @@ impl Route {
     pub fn new() -> Self {
         Route {
             routes: HashMap::new(),
-            last_package_id: 0,
+            greatest_package_id: 0,
+            package_info: RoutePackageInfo::new(),
         }
     }
 
@@ -43,15 +91,16 @@ impl Route {
     /// The previous package ID if the new package ID is greater than the last package ID, otherwise the last package ID.
     pub fn update_route(&mut self, addr: SocketAddr, hops: u8, time: f32, package_id: u32) -> u32 {
         self.routes.insert(addr, RouteInfo { hops, time });
+        self.package_info.update(package_id);
 
-        if package_id > self.last_package_id {
-            let previous_package_id = self.last_package_id;
-            self.last_package_id = package_id;
+        if package_id > self.greatest_package_id {
+            let previous_greatest_package_id = self.greatest_package_id;
+            self.greatest_package_id = package_id;
 
-            return previous_package_id;
+            return previous_greatest_package_id;
         }
 
-        self.last_package_id
+        self.greatest_package_id
     }
 
     /// Gets the best route with the minimum number of hops.
