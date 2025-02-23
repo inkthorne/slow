@@ -88,8 +88,6 @@ pub struct Route {
     routes: HashMap<SocketAddr, RouteInfo>,
 
     /// The ID of the last package.
-    greatest_package_id: u32,
-
     package_info: RoutePackageInfo,
 }
 
@@ -98,7 +96,6 @@ impl Route {
     pub fn new() -> Self {
         Route {
             routes: HashMap::new(),
-            greatest_package_id: 0,
             package_info: RoutePackageInfo::new(),
         }
     }
@@ -114,19 +111,12 @@ impl Route {
     ///
     /// # Returns
     ///
-    /// The previous package ID if the new package ID is greater than the last package ID, otherwise the last package ID.
-    pub fn update_route(&mut self, addr: SocketAddr, hops: u8, time: f32, package_id: u32) -> u32 {
+    /// `true` if the packet is not a duplicate and everything was successfully updated, `false` otherwise.
+    pub fn update_route(&mut self, addr: SocketAddr, hops: u8, time: f32, package_id: u32) -> bool {
         self.routes.insert(addr, RouteInfo { hops, time });
-        self.package_info.update(package_id);
+        let success = self.package_info.update(package_id);
 
-        if package_id > self.greatest_package_id {
-            let previous_greatest_package_id = self.greatest_package_id;
-            self.greatest_package_id = package_id;
-
-            return previous_greatest_package_id;
-        }
-
-        self.greatest_package_id
+        success
     }
 
     /// Gets the best route with the minimum number of hops.
@@ -168,7 +158,7 @@ impl RouteTable {
     ///
     /// # Returns
     ///
-    /// The previous package ID if the new package ID is greater than the last package ID, otherwise the last package ID.
+    /// `true` if the packet is not a duplicate and everything was successfully updated, `false` otherwise.
     pub fn update_route(
         &mut self,
         junction_id: &JunctionId,
@@ -176,7 +166,7 @@ impl RouteTable {
         hops: u8,
         time: f32,
         package_id: u32,
-    ) -> u32 {
+    ) -> bool {
         let route = self
             .junctions
             .entry(junction_id.clone())

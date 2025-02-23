@@ -250,7 +250,7 @@ impl SlowJunction {
     ///
     /// * `package` - A reference to the `SlowPackage` that was received.
     /// * `sender_addr` - The `SocketAddr` of the sender to be added.
-    async fn update_route_table(&self, package: &SlowPackage, sender_addr: SocketAddr) -> u32 {
+    async fn update_route_table(&self, package: &SlowPackage, sender_addr: SocketAddr) -> bool {
         let mut known_junctions = self.known_junctions.lock().await;
         known_junctions.insert(sender_addr);
 
@@ -271,10 +271,10 @@ impl SlowJunction {
     /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_package_received(&self, package: SlowPackage, sender_addr: SocketAddr) {
         // Update the route table with the sender address.
-        let last_package_id = self.update_route_table(&package, sender_addr).await;
+        let is_updated = self.update_route_table(&package, sender_addr).await;
 
         // If the package has already been processed, return.
-        if last_package_id >= package.get_package_id() {
+        if !is_updated {
             self.duplicate_package_count.fetch_add(1, Ordering::SeqCst);
             return;
         }
