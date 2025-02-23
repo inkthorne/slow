@@ -2,12 +2,29 @@ use crate::junction::JunctionId;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+/// Represents information about a route package, including the greatest package ID and a bitfield for package tracking.
+///
+/// The `RoutePackageInfo` struct is used to manage and update package information for routes.
+/// It keeps track of the greatest package ID and uses a bitfield to track package updates.
+///
+/// # Fields
+///
+/// * `greatest_package_id` - The ID of the greatest package.
+/// * `package_bitfield` - A bitfield used to track package updates.
 pub struct RoutePackageInfo {
+    /// The ID of the greatest package.
     greatest_package_id: u32,
+
+    /// A bitfield used to track package updates.
     package_bitfield: u32,
 }
 
 impl RoutePackageInfo {
+    /// Creates a new `RoutePackageInfo`.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `RoutePackageInfo` with default values.
     pub fn new() -> Self {
         RoutePackageInfo {
             greatest_package_id: 0,
@@ -15,6 +32,15 @@ impl RoutePackageInfo {
         }
     }
 
+    /// Updates the package information with a new package ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `package_id` - The ID of the package to update.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the package information was updated successfully, `false` otherwise.
     pub fn update(&mut self, package_id: u32) -> bool {
         let shift = package_id as i32 - self.greatest_package_id as i32;
 
