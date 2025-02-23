@@ -95,6 +95,9 @@ pub struct SlowJunction {
     /// A counter for the number of packages sent.
     sent_package_count: AtomicU32,
 
+    /// A counter for the number of unique packages received.
+    unique_package_count: AtomicU32,
+
     /// A counter for the number of duplicate packages rejected.
     duplicate_package_count: AtomicUsize,
 }
@@ -132,6 +135,7 @@ impl SlowJunction {
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             sent_package_count: AtomicU32::new(0),
             duplicate_package_count: AtomicUsize::new(0),
+            unique_package_count: AtomicU32::new(0),
         });
 
         let junction_clone = Arc::clone(&junction);
@@ -190,6 +194,9 @@ impl SlowJunction {
     ///
     /// * `addr` - A `SocketAddr` to be added to the set of known junction addresses.
     pub async fn seed(&self, addr: SocketAddr) {
+        if addr == self.addr {
+            return;
+        }
         let mut known_junctions = self.known_junctions.lock().await;
         known_junctions.insert(addr);
     }
@@ -216,6 +223,15 @@ impl SlowJunction {
     /// * `usize` - The number of duplicate packets rejected.
     pub fn get_duplicate_package_count(&self) -> usize {
         self.duplicate_package_count.load(Ordering::SeqCst)
+    }
+
+    /// Returns the number of unique packages received.
+    ///
+    /// # Returns
+    ///
+    /// * `u32` - The number of unique packages received.
+    pub fn get_unique_package_count(&self) -> u32 {
+        self.unique_package_count.load(Ordering::SeqCst)
     }
 
     /// Waits for a notification that there are items in the received queue and returns the JSON packet.
@@ -279,10 +295,14 @@ impl SlowJunction {
             return;
         }
 
+        // Increment unique_package_count for each non-rejected package received.
+        self.unique_package_count.fetch_add(1, Ordering::SeqCst);
+
         if *package.get_recipient_id() != self.junction_id {
             self.forward(package, sender_addr).await;
             return;
         }
+
         if let Some(json) = package.get_json_payload() {
             if json["type"] == "ping" {
                 self.on_ping_received(json).await;
@@ -309,10 +329,10 @@ impl SlowJunction {
     ///
     /// * `package` - A `SlowPackage` to be forwarded.
     /// * `sender_addr` - The `SocketAddr` of the sender.
-    async fn forward(&self, mut package: SlowPackage, sender_addr: SocketAddr) {
-        if package.increment_hops() >= 4 {
-            return;
-        }
+    async fn forward(&self, package: SlowPackage, sender_addr: SocketAddr) {
+        // if package.increment_hops() >= 4 {
+        //     return;
+        // }
         if self.send_to_best_route(&package).await {
             return;
         }
@@ -394,6 +414,7 @@ impl SlowJunction {
     pub async fn ping(&self, junction_id: &JunctionId) {
         let message =
             serde_json::json!({"type": "ping", "sender_id": self.junction_id.to_string()});
+
         self.send(message, junction_id).await;
     }
 
