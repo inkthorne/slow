@@ -456,4 +456,9 @@ impl SlowJunction {
 
         false
     }
+
+    /// Returns the junction ID.
+    pub fn get_junction_id(&self) -> &JunctionId {
+        &self.junction_id
+    }
 }
