@@ -13,7 +13,7 @@ impl JunctionSimulation {
         let mut slow_junctions: Vec<Arc<SlowJunction>> = Vec::with_capacity(num_junctions);
         let mut rng = rand::thread_rng();
         for i in 0..num_junctions {
-            let port: u16 = 1024 + i as u16;
+            let port: u16 = 10024 + i as u16;
             let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
             let id = format!("junction-{}", port);
             let junction_id = JunctionId::new(&id);
@@ -48,9 +48,19 @@ impl JunctionSimulation {
 
 #[tokio::test]
 async fn test_simulation() {
-    let junction_count = 128;
+    let junction_count = 1024;
     let simulation = JunctionSimulation::new(junction_count).await;
     simulation.ping().await;
+
+    let mut duplicate_package_count = 0;
+
+    for junction in &simulation.junctions {
+        let dupe_count = junction.get_duplicate_package_count();
+
+        if dupe_count > duplicate_package_count {
+            duplicate_package_count = dupe_count;
+        }
+    }
 
     let mut count_0_package = 0;
     let mut count_1_package = 0;
@@ -66,6 +76,8 @@ async fn test_simulation() {
             _ => count_3_or_more_packages += 1,
         }
     }
+
+    println!("Max duplicate package count: {}", duplicate_package_count);
 
     println!(
         "Number of junctions with 0 unique packages: {}",
