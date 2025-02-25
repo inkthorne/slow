@@ -172,8 +172,7 @@ impl SlowJunction {
     pub async fn send(&self, json: Value, recipient_id: &JunctionId) {
         let mut queue = self.send_queue.lock().await;
         let package =
-            SlowPackage::new_json_payload(recipient_id.clone(), self.junction_id.clone(), &json)
-                .expect("Failed to create package");
+            SlowPackage::new_json_payload(recipient_id.clone(), self.junction_id.clone(), &json);
         queue.push_back(package);
         self.send_notify.notify_one();
     }

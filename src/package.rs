@@ -3,6 +3,76 @@ use bincode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+// ===========================================================================
+// PackageType
+// ===========================================================================
+
+/// Represents the type of a package in the Slow network.
+///
+/// The `PackageType` enum defines the different types of packages that can be
+/// transmitted in the Slow network. Each variant represents a specific type
+/// of package.
+#[derive(Serialize, Deserialize)]
+pub enum PackageType {
+    Ping,
+    Pong,
+    Json,
+    Bin,
+}
+
+impl From<PackageType> for u8 {
+    /// Converts a `PackageType` into a `u8`.
+    ///
+    /// This function maps each `PackageType` variant to a unique `u8` value.
+    ///
+    /// # Arguments
+    ///
+    /// * `package_type` - A `PackageType` instance.
+    ///
+    /// # Returns
+    ///
+    /// * `u8` - The corresponding `u8` value for the `PackageType`.
+    fn from(package_type: PackageType) -> Self {
+        match package_type {
+            PackageType::Ping => 0,
+            PackageType::Pong => 1,
+            PackageType::Json => 2,
+            PackageType::Bin => 3,
+        }
+    }
+}
+
+impl TryFrom<u8> for PackageType {
+    type Error = ();
+
+    /// Attempts to convert a `u8` into a `PackageType`.
+    ///
+    /// This function tries to map a `u8` value to a `PackageType` variant.
+    /// If the value does not correspond to any variant, it returns an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A `u8` value.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<PackageType, ()>` - A result containing the `PackageType`
+    ///   if the conversion is successful, or an error if it fails.
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(PackageType::Ping),
+            1 => Ok(PackageType::Pong),
+            2 => Ok(PackageType::Json),
+            3 => Ok(PackageType::Bin),
+            _ => Err(()),
+        }
+    }
+}
+
+// ===========================================================================
+// SlowPackageHeader
+// ===========================================================================
+
 /// Represents the header of a SlowPackage.
 ///
 /// The header contains metadata about the package, such as the recipient ID,
@@ -18,8 +88,8 @@ pub struct SlowPackageHeader {
     /// The number of hops the package has taken.
     pub hop_count: u8,
 
-    /// The type of data contained in the payload: binary = 0, JSON = 1.
-    pub payload_type: u8,
+    /// The type of data contained in the payload (see PayloadType).
+    pub package_type: u8,
 
     /// An incrementing number that uniquely identifies a package from the specific sender.
     pub package_id: u32,
@@ -27,6 +97,10 @@ pub struct SlowPackageHeader {
     /// The size of the payload in bytes.
     pub payload_size: u16,
 }
+
+// ===========================================================================
+// SlowPackage
+// ===========================================================================
 
 /// Represents a package in the Slow network.
 ///
@@ -51,23 +125,19 @@ impl SlowPackage {
     ///
     /// # Returns
     ///
-    /// * `Option<Self>` - An optional `SlowPackage` instance.
-    pub fn new_json_payload(
-        recipient_id: JunctionId,
-        sender_id: JunctionId,
-        json: &Value,
-    ) -> Option<Self> {
-        let payload = serde_json::to_vec(json).ok()?;
+    /// * `Self` - A `SlowPackage` instance.
+    pub fn new_json_payload(recipient_id: JunctionId, sender_id: JunctionId, json: &Value) -> Self {
+        let payload = serde_json::to_vec(json).unwrap();
         let header = SlowPackageHeader {
             recipient_id,
             sender_id,
             hop_count: 0,
-            payload_type: 1,
+            package_type: PackageType::Json.into(),
             package_id: 0,
             payload_size: payload.len() as u16,
         };
 
-        Some(SlowPackage { header, payload })
+        SlowPackage { header, payload }
     }
 
     /// Creates a new `SlowPackage` instance.
@@ -80,23 +150,67 @@ impl SlowPackage {
     ///
     /// # Returns
     ///
-    /// * `Option<Self>` - An optional `SlowPackage` instance.
-    pub fn new_bin_payload(
-        recipient_id: JunctionId,
-        sender_id: JunctionId,
-        bin: &[u8],
-    ) -> Option<Self> {
+    /// * `Self` - A `SlowPackage` instance.
+    pub fn new_bin_payload(recipient_id: JunctionId, sender_id: JunctionId, bin: &[u8]) -> Self {
         let payload = bin.to_vec();
         let header = SlowPackageHeader {
             recipient_id,
             sender_id,
             hop_count: 0,
-            payload_type: 0,
+            package_type: PackageType::Bin.into(),
             package_id: 0,
             payload_size: payload.len() as u16,
         };
 
-        Some(SlowPackage { header, payload })
+        SlowPackage { header, payload }
+    }
+
+    /// Creates a new `SlowPackage` instance representing a Ping package.
+    ///
+    /// # Arguments
+    ///
+    /// * `recipient_id` - A `JunctionId` representing the recipient.
+    /// * `sender_id` - A `JunctionId` representing the sender.
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - A `SlowPackage` instance.
+    pub fn new_ping(recipient_id: JunctionId, sender_id: JunctionId) -> Self {
+        let payload = Vec::new();
+        let header = SlowPackageHeader {
+            recipient_id,
+            sender_id,
+            hop_count: 0,
+            package_type: PackageType::Ping.into(),
+            package_id: 0,
+            payload_size: payload.len() as u16,
+        };
+
+        SlowPackage { header, payload }
+    }
+
+    /// Creates a new `SlowPackage` instance representing a Pong package.
+    ///
+    /// # Arguments
+    ///
+    /// * `recipient_id` - A `JunctionId` representing the recipient.
+    /// * `sender_id` - A `JunctionId` representing the sender.
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - A `SlowPackage` instance.
+    pub fn new_pong(recipient_id: JunctionId, sender_id: JunctionId) -> Self {
+        let payload = Vec::new();
+        let header = SlowPackageHeader {
+            recipient_id,
+            sender_id,
+            hop_count: 0,
+            package_type: PackageType::Pong.into(),
+            package_id: 0,
+            payload_size: payload.len() as u16,
+        };
+
+        SlowPackage { header, payload }
     }
 
     /// Unpackages a byte slice into a `SlowPackage`.
@@ -202,5 +316,14 @@ impl SlowPackage {
     /// * `u32` - The package ID.
     pub fn get_package_id(&self) -> u32 {
         self.header.package_id
+    }
+
+    /// Returns the `package_type` from the header.
+    ///
+    /// # Returns
+    ///
+    /// * `PackageType` - The package type.
+    pub fn get_package_type(&self) -> Result<PackageType, ()> {
+        PackageType::try_from(self.header.package_type)
     }
 }

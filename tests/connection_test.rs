@@ -13,7 +13,7 @@ async fn test_connection_pair() {
     let json = serde_json::json!({ "key": "value" });
     let sender_id = JunctionId::new("A");
     let recipient_id = JunctionId::new("B");
-    let package = SlowPackage::new_json_payload(recipient_id, sender_id, &json).unwrap();
+    let package = SlowPackage::new_json_payload(recipient_id, sender_id, &json);
 
     // Send package from connection1 to connection2
     connection1.send_package(&package, &addr2).await.unwrap();
