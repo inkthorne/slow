@@ -29,7 +29,9 @@ async fn test_junction_line() {
     junction3.seed(addr4).await;
 
     let ping = json!({"key": "ping"});
-    junction1.send(ping.clone(), &JunctionId::new("4")).await;
+    junction1
+        .send(ping.clone(), junction4.get_junction_id())
+        .await;
 
     // Delay before receiving the package
     tokio::time::sleep(Duration::from_millis(250)).await;
@@ -234,14 +236,14 @@ async fn test_junction_ping() {
     let junction1 = SlowJunction::new(addr1, JunctionId::new("1"))
         .await
         .expect("Failed to create junction1");
-    let _junction2 = SlowJunction::new(addr2, JunctionId::new("2"))
+    let junction2 = SlowJunction::new(addr2, JunctionId::new("2"))
         .await
         .expect("Failed to create junction2");
 
     junction1.seed(addr2).await;
 
     // Use the ping function
-    junction1.ping(&JunctionId::new("2")).await;
+    junction1.ping(junction2.get_junction_id()).await;
 
     // Wait for pong to arrive
     tokio::time::sleep(Duration::from_millis(1000)).await;

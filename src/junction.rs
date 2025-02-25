@@ -1,5 +1,5 @@
 use crate::connection::SlowConnection;
-use crate::package::SlowPackage;
+use crate::package::{PackageType, SlowPackage};
 use crate::route::RouteTable;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
@@ -302,23 +302,27 @@ impl SlowJunction {
             return;
         }
 
-        if let Some(json) = package.get_json_payload() {
-            if json["type"] == "ping" {
-                self.on_ping_received(json).await;
-                return;
+        match package.get_package_type() {
+            Ok(PackageType::Ping) => {
+                self.on_ping_received(package).await;
             }
-            if json["type"] == "pong" {
+            Ok(PackageType::Pong) => {
                 self.on_pong_received().await;
-                return;
             }
-            let json_packet = JsonPacket {
-                addr: sender_addr,
-                json,
-            };
+            Ok(PackageType::Json) => {
+                if let Some(json) = package.get_json_payload() {
+                    let json_packet = JsonPacket {
+                        addr: sender_addr,
+                        json,
+                    };
 
-            let mut queue = self.received_queue.lock().await;
-            queue.push_back(json_packet);
-            self.receive_notify.notify_one();
+                    let mut queue = self.received_queue.lock().await;
+                    queue.push_back(json_packet);
+                    self.receive_notify.notify_one();
+                }
+            }
+            Ok(PackageType::Bin) => {}
+            _ => {}
         }
     }
 
@@ -400,9 +404,10 @@ impl SlowJunction {
     ///
     /// * `recipient_id` - A u16 representing the recipient ID.
     pub async fn pong(&self, recipient_id: &JunctionId) {
-        let message =
-            serde_json::json!({"type": "pong", "sender_id": self.junction_id.to_string()});
-        self.send(message, recipient_id).await;
+        let mut queue = self.send_queue.lock().await;
+        let package = SlowPackage::new_pong(recipient_id.clone(), self.junction_id.clone());
+        queue.push_back(package);
+        self.send_notify.notify_one();
     }
 
     /// Sends a ping message to a specific `SocketAddr`.
@@ -411,10 +416,10 @@ impl SlowJunction {
     ///
     /// * `junction_id` - The target junction id as a &str.
     pub async fn ping(&self, junction_id: &JunctionId) {
-        let message =
-            serde_json::json!({"type": "ping", "sender_id": self.junction_id.to_string()});
-
-        self.send(message, junction_id).await;
+        let mut queue = self.send_queue.lock().await;
+        let package = SlowPackage::new_ping(junction_id.clone(), self.junction_id.clone());
+        queue.push_back(package);
+        self.send_notify.notify_one();
     }
 
     /// Returns the current value of the pong counter.
@@ -437,10 +442,9 @@ impl SlowJunction {
     ///
     /// # Arguments
     ///
-    /// * `json` - The JSON data of the received ping message.
-    async fn on_ping_received(&self, json: Value) {
-        let sender_str = json["sender_id"].as_str().unwrap();
-        let sender_id = JunctionId::new(sender_str);
+    /// * `package` - The `SlowPackage` that was received.
+    async fn on_ping_received(&self, package: SlowPackage) {
+        let sender_id = package.get_sender_id();
         self.pong(&sender_id).await;
     }
 
