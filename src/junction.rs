@@ -294,6 +294,12 @@ impl SlowJunction {
             return;
         }
 
+        let package_type = package.get_package_type();
+
+        if package_type == Ok(PackageType::Hello) {
+            return;
+        }
+
         // Increment unique_package_count for each non-rejected package received.
         self.unique_package_count.fetch_add(1, Ordering::SeqCst);
 
@@ -302,7 +308,7 @@ impl SlowJunction {
             return;
         }
 
-        match package.get_package_type() {
+        match package_type {
             Ok(PackageType::Ping) => {
                 self.on_ping_received(package).await;
             }
