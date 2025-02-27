@@ -269,9 +269,9 @@ impl SlowJunction {
         let mut known_junctions = self.known_junctions.lock().await;
         known_junctions.insert(sender_addr);
 
-        let junction_id = package.get_sender_id();
-        let hop_count = package.get_hop_count();
-        let package_id = package.get_package_id();
+        let junction_id = package.sender_id();
+        let hop_count = package.hop_count();
+        let package_id = package.package_id();
         let time = 0.0;
 
         let mut route_table = self.route_table.lock().await;
@@ -285,7 +285,7 @@ impl SlowJunction {
     /// * `package` - A `SlowPackage` that was received.
     /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_package_received(&self, package: SlowPackage, sender_addr: SocketAddr) {
-        let package_type = package.get_package_type();
+        let package_type = package.package_type();
 
         if package_type == Ok(PackageType::Hello) {
             self.on_hello_received(package, sender_addr).await;
@@ -304,7 +304,7 @@ impl SlowJunction {
         // Increment unique_package_count for each non-rejected package received.
         self.unique_package_count.fetch_add(1, Ordering::SeqCst);
 
-        if *package.get_recipient_id() != self.junction_id {
+        if *package.recipient_id() != self.junction_id {
             self.forward(package, sender_addr).await;
             return;
         }
@@ -317,7 +317,7 @@ impl SlowJunction {
                 self.on_pong_received().await;
             }
             Ok(PackageType::Json) => {
-                if let Some(json) = package.get_json_payload() {
+                if let Some(json) = package.json_payload() {
                     let json_packet = JsonPacket {
                         addr: sender_addr,
                         json,
@@ -451,7 +451,7 @@ impl SlowJunction {
     ///
     /// * `package` - The `SlowPackage` that was received.
     async fn on_ping_received(&self, package: SlowPackage) {
-        let sender_id = package.get_sender_id();
+        let sender_id = package.sender_id();
         self.pong(&sender_id).await;
     }
 
@@ -461,7 +461,7 @@ impl SlowJunction {
     ///
     /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_hello_received(&self, package: SlowPackage, sender_addr: SocketAddr) {
-        if package.get_package_id() == 0 {
+        if package.package_id() == 0 {
             self.send_hello_response(sender_addr).await;
         }
         self.known_junctions.lock().await.insert(sender_addr);
@@ -488,7 +488,7 @@ impl SlowJunction {
     ///
     /// * `package` - The `SlowPackage` to be sent.
     pub async fn send_to_best_route(&self, package: &SlowPackage) -> bool {
-        if let Some(best_route) = self.get_best_route(package.get_recipient_id()).await {
+        if let Some(best_route) = self.get_best_route(package.recipient_id()).await {
             self.connection
                 .send_package(package, &best_route)
                 .await

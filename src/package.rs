@@ -286,7 +286,7 @@ impl SlowPackage {
     /// # Returns
     ///
     /// * `Option<Value>` - An optional `Value` representing the JSON data.
-    pub fn get_json_payload(&self) -> Option<Value> {
+    pub fn json_payload(&self) -> Option<Value> {
         serde_json::from_slice(&self.payload).ok()
     }
 
@@ -305,7 +305,7 @@ impl SlowPackage {
     /// # Returns
     ///
     /// * `&JunctionId` - The recipient ID.
-    pub fn get_recipient_id(&self) -> &JunctionId {
+    pub fn recipient_id(&self) -> &JunctionId {
         &self.header.recipient_id
     }
 
@@ -314,7 +314,7 @@ impl SlowPackage {
     /// # Returns
     ///
     /// * `&JunctionId` - The sender ID.
-    pub fn get_sender_id(&self) -> &JunctionId {
+    pub fn sender_id(&self) -> &JunctionId {
         &self.header.sender_id
     }
 
@@ -323,7 +323,7 @@ impl SlowPackage {
     /// # Returns
     ///
     /// * `u16` - The hop count.
-    pub fn get_hop_count(&self) -> u8 {
+    pub fn hop_count(&self) -> u8 {
         self.header.hop_count
     }
 
@@ -341,7 +341,7 @@ impl SlowPackage {
     /// # Returns
     ///
     /// * `u32` - The package ID.
-    pub fn get_package_id(&self) -> u32 {
+    pub fn package_id(&self) -> u32 {
         self.header.package_id
     }
 
@@ -350,7 +350,7 @@ impl SlowPackage {
     /// # Returns
     ///
     /// * `PackageType` - The package type.
-    pub fn get_package_type(&self) -> Result<PackageType, ()> {
+    pub fn package_type(&self) -> Result<PackageType, ()> {
         PackageType::try_from(self.header.package_type)
     }
 }
