@@ -193,6 +193,8 @@ impl SlowJunction {
     ///
     /// * `addr` - A `SocketAddr` to be added to the set of known junction addresses.
     pub async fn seed(&self, addr: SocketAddr) {
+        let msg = format!("Seeding known junction: {}", addr);
+        self.log(&msg);
         if addr == self.addr {
             return;
         }
@@ -285,18 +287,22 @@ impl SlowJunction {
     /// * `package` - A `SlowPackage` that was received.
     /// * `sender_addr` - The `SocketAddr` of the sender.
     async fn on_package_received(&self, package: SlowPackage, sender_addr: SocketAddr) {
+        let package_type = package.get_package_type();
+
+        if package_type == Ok(PackageType::Hello) {
+            self.on_hello_received(sender_addr).await;
+            return;
+        }
+
+        let msg = format!("Received a non-hello package from {}", sender_addr);
+        self.log(&msg);
+
         // Update the route table with the sender address.
         let is_updated = self.update_route_table(&package, sender_addr).await;
 
         // If the package has already been processed, return.
         if !is_updated {
             self.duplicate_package_count.fetch_add(1, Ordering::SeqCst);
-            return;
-        }
-
-        let package_type = package.get_package_type();
-
-        if package_type == Ok(PackageType::Hello) {
             return;
         }
 
@@ -360,9 +366,14 @@ impl SlowJunction {
         package: SlowPackage,
         exclude_addr: Option<SocketAddr>,
     ) {
+        let msg = format!("Sending package to known junctions");
+        self.log(&msg);
+        self.print_known_junctions().await;
         let known_junctions = self.known_junctions.lock().await;
         for addr in known_junctions.iter() {
             if Some(*addr) != exclude_addr {
+                let msg = format!("Sending package to known junction: {}", addr);
+                self.log(&msg);
                 self.connection
                     .send_package(&package, addr)
                     .await
@@ -454,6 +465,21 @@ impl SlowJunction {
         self.pong(&sender_id).await;
     }
 
+    /// Handles a received hello message by sending a hello response.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender_addr` - The `SocketAddr` of the sender.
+    async fn on_hello_received(&self, sender_addr: SocketAddr) {
+        let mut known_junctions = self.known_junctions.lock().await;
+        if !known_junctions.contains(&sender_addr) {
+            let msg = format!("responding to received hello from {}", sender_addr);
+            self.log(&msg);
+            known_junctions.insert(sender_addr);
+            self.send_hello(sender_addr).await;
+        }
+    }
+
     /// Gets the best route to a junction.
     ///
     /// # Arguments
@@ -490,5 +516,27 @@ impl SlowJunction {
     /// Returns the junction ID.
     pub fn get_junction_id(&self) -> &JunctionId {
         &self.junction_id
+    }
+
+    /// Sends a hello message to a specific `SocketAddr`.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The `SocketAddr` to send the hello message to.
+    pub async fn send_hello(&self, addr: SocketAddr) {
+        let package = SlowPackage::new_hello(self.junction_id.clone());
+        self.log(&format!("Sending hello to {}", addr));
+        self.connection
+            .send_package(&package, &addr)
+            .await
+            .expect("Failed to send hello package");
+    }
+
+    /// Sends hello messages to all known junctions.
+    pub async fn send_hellos(&self) {
+        let known_junctions = self.known_junctions.lock().await;
+        for addr in known_junctions.iter() {
+            self.send_hello(*addr).await;
+        }
     }
 }

@@ -24,9 +24,12 @@ async fn test_junction_line() {
         .await
         .expect("Failed to create junction4");
 
-    junction1.seed(addr2).await;
-    junction2.seed(addr3).await;
-    junction3.seed(addr4).await;
+    junction1.send_hello(addr2).await;
+    junction2.send_hello(addr3).await;
+    junction3.send_hello(addr4).await;
+
+    // Wait for hellos to finish.
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
     let ping = json!({"key": "ping"});
     junction1

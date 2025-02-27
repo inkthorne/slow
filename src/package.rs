@@ -220,14 +220,14 @@ impl SlowPackage {
     ///
     /// # Arguments
     ///
-    /// * `recipient_id` - A `JunctionId` representing the recipient.
     /// * `sender_id` - A `JunctionId` representing the sender.
     ///
     /// # Returns
     ///
     /// * `Self` - A `SlowPackage` instance.
-    pub fn new_hello(recipient_id: JunctionId, sender_id: JunctionId) -> Self {
+    pub fn new_hello(sender_id: JunctionId) -> Self {
         let payload = Vec::new();
+        let recipient_id = JunctionId::new("none");
         let header = SlowPackageHeader {
             recipient_id,
             sender_id,
