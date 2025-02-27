@@ -505,12 +505,21 @@ impl SlowJunction {
         &self.junction_id
     }
 
+    /// Joins a junction by sending a hello message to the specified address.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The `SocketAddr` to send the hello message to.
+    pub async fn join(&self, addr: SocketAddr) {
+        self.send_hello(addr).await;
+    }
+
     /// Sends a hello message to a specific `SocketAddr`.
     ///
     /// # Arguments
     ///
     /// * `addr` - The `SocketAddr` to send the hello message to.
-    pub async fn send_hello(&self, addr: SocketAddr) {
+    async fn send_hello(&self, addr: SocketAddr) {
         let package = SlowPackage::new_hello(0, self.junction_id.clone());
         self.connection
             .send_package(&package, &addr)
@@ -523,19 +532,11 @@ impl SlowJunction {
     /// # Arguments
     ///
     /// * `addr` - The `SocketAddr` to send the hello message to.
-    pub async fn send_hello_response(&self, addr: SocketAddr) {
+    async fn send_hello_response(&self, addr: SocketAddr) {
         let package = SlowPackage::new_hello(1, self.junction_id.clone());
         self.connection
             .send_package(&package, &addr)
             .await
             .expect("Failed to send hello package.");
-    }
-
-    /// Sends hello messages to all known junctions.
-    pub async fn send_hellos(&self) {
-        let known_junctions = self.known_junctions.lock().await;
-        for addr in known_junctions.iter() {
-            self.send_hello(*addr).await;
-        }
     }
 }

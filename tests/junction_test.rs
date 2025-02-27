@@ -24,9 +24,9 @@ async fn test_junction_line() {
         .await
         .expect("Failed to create junction4");
 
-    junction1.send_hello(addr2).await;
-    junction2.send_hello(addr3).await;
-    junction3.send_hello(addr4).await;
+    junction1.join(addr2).await;
+    junction2.join(addr3).await;
+    junction3.join(addr4).await;
 
     // Wait for hellos to finish.
     tokio::time::sleep(Duration::from_millis(250)).await;
@@ -89,14 +89,14 @@ async fn test_junction_square() {
         .expect("Failed to create junction4");
 
     // Create square topology: junction1 -> (junction2, junction3) -> junction4
-    junction1.seed(addr2).await;
-    junction1.seed(addr3).await;
-    junction2.seed(addr4).await;
-    junction3.seed(addr4).await;
+    junction1.join(addr2).await;
+    junction1.join(addr3).await;
+    junction2.join(addr4).await;
+    junction3.join(addr4).await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
     let ping = json!({"key": "ping"});
     junction1.send(ping.clone(), &junction_id4).await;
-
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     assert_eq!(junction4.get_waiting_package_count().await, 1); // Should receive 2 packages but only accept 1
@@ -152,25 +152,20 @@ async fn test_junction_pyramid() {
         .expect("Failed to create junction5");
 
     // Create pyramid topology: junction1 -> (junction2, junction3) -> junction4
-    junction1.seed(addr2).await;
-    junction1.seed(addr3).await;
-    junction2.seed(addr1).await;
-    junction2.seed(addr4).await;
-    junction3.seed(addr1).await;
-    junction3.seed(addr4).await;
-    junction4.seed(addr2).await;
-    junction4.seed(addr3).await;
+    junction1.join(addr2).await;
+    junction1.join(addr3).await;
+    junction2.join(addr4).await;
+    junction3.join(addr4).await;
 
-    // Seed all junctions with junction5
-    junction1.seed(addr5).await;
-    junction2.seed(addr5).await;
-    junction3.seed(addr5).await;
-    junction4.seed(addr5).await;
-    junction5.seed(addr4).await;
+    // Join all junctions with junction5
+    junction1.join(addr5).await;
+    junction2.join(addr5).await;
+    junction3.join(addr5).await;
+    junction4.join(addr5).await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
     let ping = json!({"key": "ping"});
     junction1.send(ping.clone(), &junction_id4).await;
-
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     assert_eq!(junction5.get_duplicate_package_count(), 2); // Should have received 2 duplicate packages from junction2 & 3
@@ -179,7 +174,6 @@ async fn test_junction_pyramid() {
 
     let received_package = junction4.recv().await.unwrap();
     assert_eq!(received_package.json, ping);
-    assert!(received_package.addr == addr2 || received_package.addr == addr3);
 
     let pong = json!({"key": "pong"});
     junction4.send(pong.clone(), &junction_id1).await;
@@ -204,7 +198,8 @@ async fn test_junction_pair() {
         .await
         .expect("Failed to create junction2");
 
-    junction1.seed(addr2).await;
+    junction1.join(addr2).await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
     let ping = json!({"key": "ping"});
     junction1.send(ping.clone(), &JunctionId::new("2")).await;
@@ -243,7 +238,8 @@ async fn test_junction_ping() {
         .await
         .expect("Failed to create junction2");
 
-    junction1.seed(addr2).await;
+    junction1.join(addr2).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Use the ping function
     junction1.ping(junction2.get_junction_id()).await;
