@@ -225,7 +225,7 @@ impl SlowPackage {
     /// # Returns
     ///
     /// * `Self` - A `SlowPackage` instance.
-    pub fn new_hello(sender_id: JunctionId) -> Self {
+    pub fn new_hello(package_id: u32, sender_id: JunctionId) -> Self {
         let payload = Vec::new();
         let recipient_id = JunctionId::new("none");
         let header = SlowPackageHeader {
@@ -233,7 +233,7 @@ impl SlowPackage {
             sender_id,
             hop_count: 0,
             package_type: PackageType::Hello.into(),
-            package_id: 0,
+            package_id,
             payload_size: payload.len() as u16,
         };
 
