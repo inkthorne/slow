@@ -63,13 +63,13 @@ pub struct SlowJunction {
     connection: SlowConnection,
 
     /// A set of known junction addresses.
-    known_junctions: Arc<Mutex<HashSet<SocketAddr>>>,
+    known_junctions: Mutex<HashSet<SocketAddr>>,
 
     /// A queue of packages to be sent.
-    send_queue: Arc<Mutex<VecDeque<SlowPackage>>>,
+    send_queue: Mutex<VecDeque<SlowPackage>>,
 
     /// A queue of received JSON packets.
-    received_queue: Arc<Mutex<VecDeque<JsonPacket>>>,
+    received_queue: Mutex<VecDeque<JsonPacket>>,
 
     /// The address of the junction.
     addr: SocketAddr,
@@ -78,19 +78,19 @@ pub struct SlowJunction {
     junction_id: JunctionId,
 
     /// A flag to indicate if the thread should terminate.
-    terminate: Arc<AtomicBool>,
+    terminate: AtomicBool,
 
     /// A notification to signal when a package is added to the send queue.
-    send_notify: Arc<Notify>,
+    send_notify: Notify,
 
     /// A notification to signal when a package is added to the receive queue.
-    receive_notify: Arc<Notify>,
+    receive_notify: Notify,
 
     /// A counter for the number of pong messages received.
-    pong_counter: Arc<Mutex<u32>>,
+    pong_counter: AtomicU32,
 
     /// The route table for the junction.
-    route_table: Arc<Mutex<RouteTable>>,
+    route_table: Mutex<RouteTable>,
 
     /// A counter for the number of packages sent.
     sent_package_count: AtomicU32,
@@ -123,16 +123,16 @@ impl SlowJunction {
         let connection = SlowConnection::new(addr).await?;
         let junction = Arc::new(Self {
             connection,
-            known_junctions: Arc::new(Mutex::new(HashSet::new())),
-            send_queue: Arc::new(Mutex::new(VecDeque::new())),
-            received_queue: Arc::new(Mutex::new(VecDeque::new())),
+            known_junctions: Mutex::new(HashSet::new()),
+            send_queue: Mutex::new(VecDeque::new()),
+            received_queue: Mutex::new(VecDeque::new()),
             addr,
             junction_id, // use passed JunctionId directly
-            terminate: Arc::new(AtomicBool::new(false)),
-            send_notify: Arc::new(Notify::new()),
-            receive_notify: Arc::new(Notify::new()),
-            pong_counter: Arc::new(Mutex::new(0)),
-            route_table: Arc::new(Mutex::new(RouteTable::new())),
+            terminate: AtomicBool::new(false),
+            send_notify: Notify::new(),
+            receive_notify: Notify::new(),
+            pong_counter: AtomicU32::new(0),
+            route_table: Mutex::new(RouteTable::new()),
             sent_package_count: AtomicU32::new(0),
             duplicate_package_count: AtomicUsize::new(0),
             unique_package_count: AtomicU32::new(0),
@@ -435,14 +435,12 @@ impl SlowJunction {
     ///
     /// * `u32` - The current value of the pong counter.
     pub async fn get_pong_counter(&self) -> u32 {
-        let counter = self.pong_counter.lock().await;
-        *counter
+        self.pong_counter.load(Ordering::SeqCst)
     }
 
     /// Increments the pong counter when a pong message is received.
     async fn on_pong_received(&self) {
-        let mut counter = self.pong_counter.lock().await;
-        *counter += 1;
+        self.pong_counter.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Handles a received ping message by sending a pong response.

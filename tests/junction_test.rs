@@ -156,6 +156,7 @@ async fn test_junction_pyramid() {
     junction1.join(addr3).await;
     junction2.join(addr4).await;
     junction3.join(addr4).await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
     // Join all junctions with junction5
     junction1.join(addr5).await;
@@ -175,15 +176,14 @@ async fn test_junction_pyramid() {
     let received_package = junction4.recv().await.unwrap();
     assert_eq!(received_package.json, ping);
 
+    // Assert best route to junction "1" from "4" exists
+    assert!(junction4.get_best_route(&junction_id1).await.is_some());
+
     let pong = json!({"key": "pong"});
     junction4.send(pong.clone(), &junction_id1).await;
-
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     assert_eq!(junction1.get_waiting_package_count().await, 1); // Should receive only from one best path
-
-    // Assert best route to junction "1" from "4" exists
-    assert!(junction4.get_best_route(&junction_id1).await.is_some());
 }
 
 #[tokio::test]
