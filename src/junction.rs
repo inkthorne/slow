@@ -388,7 +388,7 @@ impl SlowJunction {
     ///
     /// * `Option<(SlowPackage, SocketAddr)>` - An optional tuple containing the received package and sender address.
     pub async fn read_package(&self) -> Option<(SlowPackage, SocketAddr)> {
-        self.connection.recv_package().await
+        self.connection.receive_package().await
     }
 
     /// Sends all queued packages to known junctions, excluding the address `0.0.0.0:0`.
@@ -410,7 +410,7 @@ impl SlowJunction {
 
     /// Receives a package via `connection.recv_package()` and processes it.
     async fn pump_recv(&self) {
-        if let Some((slow_package, sender_addr)) = self.connection.recv_package().await {
+        if let Some((slow_package, sender_addr)) = self.connection.receive_package().await {
             self.on_package_received(slow_package, sender_addr).await;
         }
     }
