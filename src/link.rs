@@ -1,5 +1,5 @@
-use crate::connection::SlowSocket;
 use crate::package::SlowPackage;
+use crate::socket::SlowSocket;
 use std::net::SocketAddr;
 
 /// A `SlowLink` represents a direct connection between two junctions in the network.

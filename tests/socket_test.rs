@@ -1,10 +1,10 @@
-use slow::connection::SlowSocket;
 use slow::junction::JunctionId;
 use slow::package::SlowPackage;
+use slow::socket::SlowSocket;
 use std::net::SocketAddr;
 
 #[tokio::test]
-async fn test_connection_pair() {
+async fn test_socket_pair() {
     let addr1: SocketAddr = "127.0.0.1:8081".parse().unwrap();
     let addr2: SocketAddr = "127.0.0.1:8082".parse().unwrap();
     let connection1 = SlowSocket::new(addr1).await.unwrap();

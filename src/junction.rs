@@ -1,6 +1,6 @@
-use crate::connection::SlowSocket;
 use crate::package::{PackageType, SlowPackage};
 use crate::route::RouteTable;
+use crate::socket::SlowSocket;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
