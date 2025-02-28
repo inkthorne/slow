@@ -339,10 +339,10 @@ impl SlowJunction {
     ///
     /// * `package` - A `SlowPackage` to be forwarded.
     /// * `sender_addr` - The `SocketAddr` of the sender.
-    async fn forward(&self, package: SlowPackage, sender_addr: SocketAddr) {
-        // if package.increment_hops() >= 4 {
-        //     return;
-        // }
+    async fn forward(&self, mut package: SlowPackage, sender_addr: SocketAddr) {
+        if package.increment_hops() >= 128 {
+            return;
+        }
         if self.send_to_best_route(&package).await {
             return;
         }
