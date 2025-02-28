@@ -2,6 +2,93 @@ use crate::package::SlowPackage;
 use crate::socket::SlowSocket;
 use std::net::SocketAddr;
 
+//=============================================================================
+// SlowLinkPacketType
+//=============================================================================
+
+/// Represents the type of a SlowLink packet.
+///
+/// This enum defines the possible packet types that can be transmitted through a SlowLink.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlowLinkPacketType {
+    /// Indicates an acknowledgment packet.
+    Acknowledge,
+    /// Indicates a payload packet carrying data.
+    Payload,
+}
+
+//=============================================================================
+// SlowLinkPayloadPacket
+//=============================================================================
+
+/// A struct representing a payload packet sent through a SlowLink.
+///
+/// This struct uniquely identifies a payload packet with an ID.
+pub struct SlowLinkPayloadPacket {
+    /// The type of packet (see SlowLinkPacketType).
+    pub packet_type: u8,
+    /// The unique identifier for the packet.
+    pub packet_id: u64,
+}
+
+impl SlowLinkPayloadPacket {
+    /// Creates a new `SlowLinkPayloadPacket` with the packet type set to Payload.
+    ///
+    /// # Arguments
+    ///
+    /// * `packet_id` - The unique identifier for the packet
+    ///
+    /// # Returns
+    ///
+    /// * `SlowLinkPayloadPacket` - A new instance with packet_type set to Payload
+    pub fn new(packet_id: u64) -> Self {
+        Self {
+            packet_type: SlowLinkPacketType::Payload as u8,
+            packet_id,
+        }
+    }
+}
+
+//=============================================================================
+// SlowLinkAckPacket
+//=============================================================================
+
+/// A struct representing an acknowledgment packet sent through a SlowLink.
+///
+/// This struct uniquely identifies an acknowledgment packet with an ID.
+pub struct SlowLinkAckPacket {
+    /// The type of packet (see SlowLinkPacketType).
+    pub packet_type: u8,
+    /// The highest unique packet identifier received by the sender.
+    pub highest_packet_id: u64,
+    /// A bitfield representing which packet ids have been received relative
+    /// to the `higest_packet_id`.
+    pub packet_bitfield: u64,
+}
+
+impl SlowLinkAckPacket {
+    /// Creates a new `SlowLinkAckPacket` with the packet type set to Acknowledge.
+    ///
+    /// # Arguments
+    ///
+    /// * `packet_id` - The unique identifier for the packet
+    ///
+    /// # Returns
+    ///
+    /// * `SlowLinkAckPacket` - A new instance with packet_type set to Acknowledge
+    pub fn new(highest_packet_id: u64, packet_bitfield: u64) -> Self {
+        Self {
+            packet_type: SlowLinkPacketType::Acknowledge as u8,
+            highest_packet_id,
+            packet_bitfield,
+        }
+    }
+}
+
+//=============================================================================
+// SlowLink
+//=============================================================================
+
 /// A `SlowLink` represents a direct connection between two junctions in the network.
 ///
 /// This struct provides methods to create a new link and send packages through it.
@@ -45,12 +132,10 @@ impl SlowLink {
     pub async fn send(
         &mut self,
         package: &SlowPackage,
-        connection: &SlowSocket,
+        socket: &SlowSocket,
     ) -> std::io::Result<()> {
         // Send the package to the remote junction.
-        connection
-            .send_package(package, &self.remote_address)
-            .await?;
+        socket.send_package(package, &self.remote_address).await?;
         // Increment the packages_sent counter on success.
         self.packages_sent += 1;
         Ok(())
