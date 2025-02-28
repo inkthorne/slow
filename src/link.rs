@@ -1,4 +1,4 @@
-use crate::connection::SlowConnection;
+use crate::connection::SlowSocket;
 use crate::package::SlowPackage;
 use std::net::SocketAddr;
 
@@ -45,7 +45,7 @@ impl SlowLink {
     pub async fn send(
         &mut self,
         package: &SlowPackage,
-        connection: &SlowConnection,
+        connection: &SlowSocket,
     ) -> std::io::Result<()> {
         // Send the package to the remote junction.
         connection

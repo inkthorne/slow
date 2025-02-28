@@ -1,4 +1,4 @@
-use crate::connection::SlowConnection;
+use crate::connection::SlowSocket;
 use crate::package::{PackageType, SlowPackage};
 use crate::route::RouteTable;
 use serde_json::Value;
@@ -60,7 +60,7 @@ impl std::fmt::Display for JunctionId {
 /// and run the main loop. It is designed to work asynchronously using the Tokio runtime.
 pub struct SlowJunction {
     /// The connection used by the junction.
-    connection: SlowConnection,
+    connection: SlowSocket,
 
     /// A set of known junction addresses.
     known_junctions: Mutex<HashSet<SocketAddr>>,
@@ -120,7 +120,7 @@ impl SlowJunction {
     ///
     /// * `Result<Arc<Self>, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
     pub async fn new(addr: SocketAddr, junction_id: JunctionId) -> std::io::Result<Arc<Self>> {
-        let connection = SlowConnection::new(addr).await?;
+        let connection = SlowSocket::new(addr).await?;
         let junction = Arc::new(Self {
             connection,
             known_junctions: Mutex::new(HashSet::new()),

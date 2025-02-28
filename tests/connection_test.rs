@@ -1,4 +1,4 @@
-use slow::connection::SlowConnection;
+use slow::connection::SlowSocket;
 use slow::junction::JunctionId;
 use slow::package::SlowPackage;
 use std::net::SocketAddr;
@@ -7,8 +7,8 @@ use std::net::SocketAddr;
 async fn test_connection_pair() {
     let addr1: SocketAddr = "127.0.0.1:8081".parse().unwrap();
     let addr2: SocketAddr = "127.0.0.1:8082".parse().unwrap();
-    let connection1 = SlowConnection::new(addr1).await.unwrap();
-    let connection2 = SlowConnection::new(addr2).await.unwrap();
+    let connection1 = SlowSocket::new(addr1).await.unwrap();
+    let connection2 = SlowSocket::new(addr2).await.unwrap();
 
     let json = serde_json::json!({ "key": "value" });
     let sender_id = JunctionId::new("A");
