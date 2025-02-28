@@ -20,8 +20,7 @@ impl JunctionSimulation {
             let slow_junction = SlowJunction::new(addr, junction_id).await.unwrap();
             if !slow_junctions.is_empty() {
                 let random_junction = &slow_junctions[rng.gen_range(0..slow_junctions.len())];
-                random_junction.seed(slow_junction.get_address()).await;
-                slow_junction.seed(random_junction.get_address()).await;
+                slow_junction.join(random_junction.get_address()).await;
             }
             slow_junctions.push(slow_junction);
         }

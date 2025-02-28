@@ -156,7 +156,6 @@ async fn test_junction_pyramid() {
     junction1.join(addr3).await;
     junction2.join(addr4).await;
     junction3.join(addr4).await;
-    tokio::time::sleep(Duration::from_millis(250)).await;
 
     // Join all junctions with junction5
     junction1.join(addr5).await;
