@@ -12,10 +12,10 @@ pub struct SlowSocket {
     socket: UdpSocket,
 
     /// The count of packages sent.
-    sent_package_count: AtomicU32,
+    sent_packet_count: AtomicU32,
 
     /// The count of packages received.
-    received_package_count: AtomicU32,
+    received_packet_count: AtomicU32,
 }
 
 impl SlowSocket {
@@ -32,8 +32,8 @@ impl SlowSocket {
         let socket = UdpSocket::bind(addr).await?;
         Ok(SlowSocket {
             socket,
-            sent_package_count: AtomicU32::new(0),
-            received_package_count: AtomicU32::new(0),
+            sent_packet_count: AtomicU32::new(0),
+            received_packet_count: AtomicU32::new(0),
         })
     }
 
@@ -53,9 +53,42 @@ impl SlowSocket {
         recipient_addr: &SocketAddr,
     ) -> std::io::Result<()> {
         let packaged_data = package.package();
-        self.socket.send_to(&packaged_data, *recipient_addr).await?;
-        self.sent_package_count.fetch_add(1, Ordering::SeqCst);
+        self.send(&packaged_data, recipient_addr).await?;
         Ok(())
+    }
+
+    /// Sends raw data to the specified address.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - A slice of bytes to send.
+    /// * `recipient_addr` - A reference to the `SocketAddr` of the recipient.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<usize, std::io::Error>` - A result containing the number of bytes sent or an error if sending fails.
+    pub async fn send(&self, data: &[u8], recipient_addr: &SocketAddr) -> std::io::Result<usize> {
+        let bytes_sent = self.socket.send_to(data, *recipient_addr).await?;
+        self.sent_packet_count.fetch_add(1, Ordering::SeqCst);
+        Ok(bytes_sent)
+    }
+
+    /// Receives raw data from the socket.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<(Vec<u8>, SocketAddr)>` - An option containing the received data as a Vec<u8> and the source address,
+    ///   or `None` if an error occurs.
+    pub async fn receive(&self) -> Option<(Vec<u8>, SocketAddr)> {
+        let mut buf = [0; 4096];
+        match self.socket.recv_from(&mut buf).await {
+            Ok((amt, src)) => {
+                let data = buf[..amt].to_vec();
+                self.received_packet_count.fetch_add(1, Ordering::SeqCst);
+                Some((data, src))
+            }
+            Err(_) => None,
+        }
     }
 
     /// Receives a package from the socket.
@@ -64,16 +97,12 @@ impl SlowSocket {
     ///
     /// * `Option<(SlowPackage, SocketAddr)>` - An option containing the received package and the source address, or `None` if an error occurs.
     pub async fn receive_package(&self) -> Option<(SlowPackage, SocketAddr)> {
-        let mut buf = [0; 4096];
-        match self.socket.recv_from(&mut buf).await {
-            Ok((amt, src)) => {
-                let package = &buf[..amt];
-                SlowPackage::unpackage(package).map(|d| {
-                    self.received_package_count.fetch_add(1, Ordering::SeqCst);
-                    (d, src)
-                })
-            }
-            Err(_) => None,
+        if let Some((data, src)) = self.receive().await {
+            // Extract the package from the raw data
+            // Note: No need to increment the counter since receive() already does that
+            SlowPackage::unpackage(&data).map(|package| (package, src))
+        } else {
+            None
         }
     }
 
@@ -86,21 +115,21 @@ impl SlowSocket {
         self.socket.local_addr()
     }
 
-    /// Returns the count of packages sent.
+    /// Returns the count of packets sent.
     ///
     /// # Returns
     ///
-    /// * `u32` - The count of packages sent.
-    pub fn sent_package_count(&self) -> u32 {
-        self.sent_package_count.load(Ordering::SeqCst)
+    /// * `u32` - The count of packets sent.
+    pub fn sent_packet_count(&self) -> u32 {
+        self.sent_packet_count.load(Ordering::SeqCst)
     }
 
-    /// Returns the count of packages received.
+    /// Returns the count of packets received.
     ///
     /// # Returns
     ///
-    /// * `u32` - The count of packages received.
-    pub fn received_package_count(&self) -> u32 {
-        self.received_package_count.load(Ordering::SeqCst)
+    /// * `u32` - The count of packets received.
+    pub fn received_packet_count(&self) -> u32 {
+        self.received_packet_count.load(Ordering::SeqCst)
     }
 }
