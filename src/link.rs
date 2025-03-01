@@ -1,5 +1,5 @@
-use crate::package::SlowPackage;
 use crate::tracker::PacketTracker;
+use crate::{package::SlowPackage, tracker::UpdateResult};
 use bincode; // Add bincode for serialization
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -38,6 +38,24 @@ impl From<u8> for SlowLinkPacketType {
             _ => SlowLinkPacketType::Payload, // Default to Payload for unknown values
         }
     }
+}
+
+//=============================================================================
+// UnpackResult
+//=============================================================================
+/// Represents the result of unpacking a packet.
+///
+/// This enum defines the possible outcomes of unpacking a packet.
+#[derive(Debug, PartialEq)]
+pub enum UnpackResult {
+    /// Indicates that the packet was successfully unpacked and provides the starting index of payload data.
+    Payload(usize),
+    /// Indicates that the packet was a control packet.
+    Control,
+    /// Indicates that the packet was a duplicate packet and was discarded.
+    Duplicate,
+    /// Indicates that the packet was too old to be tracked and was discarded.
+    Old,
 }
 
 //=============================================================================
@@ -179,7 +197,9 @@ impl SlowLink {
     /// * `Option<Vec<u8>>` - The packed buffer containing header and package data, or None if serialization fails
     pub fn pack(&mut self, package: &SlowPackage) -> Option<Vec<u8>> {
         // Create a new payload packet with the current packets_sent as the ID
-        let payload_packet = SlowLinkPayloadPacket::new(self.packed_count);
+        // Increment the packages_sent counter
+        let packed_count = self.packed_count + 1;
+        let payload_packet = SlowLinkPayloadPacket::new(packed_count);
 
         // Serialize the payload packet into a buffer
         let payload_header = match bincode::serialize(&payload_packet) {
@@ -196,8 +216,7 @@ impl SlowLink {
         buffer.extend_from_slice(&package_data);
 
         // Increment the packages_sent counter
-        self.packed_count += 1;
-
+        self.packed_count = packed_count;
         Some(buffer)
     }
 
@@ -214,11 +233,11 @@ impl SlowLink {
     ///
     /// # Returns
     ///
-    /// * `Option<usize>` - Some containing the starting index of payload data for payload packets, or None for ack packets
-    pub fn unpack(&mut self, data: &[u8]) -> Option<usize> {
+    /// * `UnpackResult` - The result of unpacking the packet
+    pub fn unpack(&mut self, data: &[u8]) -> UnpackResult {
         // Check if data is empty
         if data.is_empty() {
-            return None;
+            return UnpackResult::Control;
         }
 
         // Match on the packet type
@@ -237,22 +256,22 @@ impl SlowLink {
     ///
     /// # Returns
     ///
-    /// * `Option<usize>` - Some containing the starting index of payload data if valid, or None if invalid
-    fn process_payload(&mut self, data: &[u8]) -> Option<usize> {
+    /// * `UnpackResult` - The result of processing the payload packet
+    fn process_payload(&mut self, data: &[u8]) -> UnpackResult {
         // Try to deserialize as a payload packet
         if let Ok(payload_packet) = bincode::deserialize::<SlowLinkPayloadPacket>(
             &data[0..std::mem::size_of::<SlowLinkPayloadPacket>()],
         ) {
             // Update the packet state with this new packet ID
-            if !self.unpacked_tracker.update(payload_packet.packet_id) {
-                return None;
+            if self.unpacked_tracker.update(payload_packet.packet_id) != UpdateResult::Success {
+                return UnpackResult::Duplicate;
             }
 
             // Return the index where payload data starts
             let payload_start = std::mem::size_of::<SlowLinkPayloadPacket>();
-            return Some(payload_start);
+            return UnpackResult::Payload(payload_start);
         }
-        None
+        UnpackResult::Control
     }
 
     /// Process an acknowledgment packet.
@@ -263,9 +282,9 @@ impl SlowLink {
     ///
     /// # Returns
     ///
-    /// * `Option<usize>` - Always None for acknowledgment packets
-    fn process_ack(_data: &[u8]) -> Option<usize> {
-        None
+    /// * `UnpackResult` - Always UnpackResult::Control for acknowledgment packets
+    fn process_ack(_data: &[u8]) -> UnpackResult {
+        UnpackResult::Control
     }
 
     /// Returns the remote junction address.
@@ -282,7 +301,7 @@ impl SlowLink {
     /// # Returns
     ///
     /// * `u64` - The count of successfully sent packets.
-    pub fn packets_sent(&self) -> u64 {
+    pub fn packed_count(&self) -> u64 {
         self.packed_count
     }
 }

@@ -1,3 +1,14 @@
+/// Represents the result of updating a packet
+#[derive(Debug, PartialEq)]
+pub enum UpdateResult {
+    /// Packet was successfully processed
+    Success,
+    /// Packet is a duplicate and should be discarded
+    Duplicate,
+    /// Packet is too old and should be discarded
+    Old,
+}
+
 /// Tracks packet receipt information in Link connections.
 ///
 /// This struct monitors the highest packet ID received and maintains a bitfield
@@ -32,13 +43,15 @@ impl PacketTracker {
     ///
     /// # Returns
     ///
-    /// `true` if the packet information was updated successfully, `false` otherwise.
-    pub fn update(&mut self, packet_id: u64) -> bool {
+    /// The result of the update operation. Returns `UpdateResult::Duplicate` if the packet is a duplicate, `UpdateResult::Old` if the packet is too old, and
+    /// `UpdateResult::Success` if the packet was successfully processed.
+    pub fn update(&mut self, packet_id: u64) -> UpdateResult {
         let shift = packet_id as i64 - self.highest_packet_id as i64;
-
-        // If the packet is the same ID we already received or it's too old, ignore it
-        if shift == 0 || shift < -63 {
-            return false;
+        if shift == 0 {
+            return UpdateResult::Duplicate;
+        }
+        if shift < -63 {
+            return UpdateResult::Old;
         }
 
         // If the packet is older than the highest packet ID but within the bitfield range
@@ -47,12 +60,12 @@ impl PacketTracker {
 
             // Check if we've already received this packet
             if self.packet_bitfield & mask != 0 {
-                return false;
+                return UpdateResult::Duplicate;
             }
 
             // Mark this packet as received
             self.packet_bitfield |= mask;
-            return true;
+            return UpdateResult::Success;
         }
 
         // If the packet is newer than the highest packet ID
@@ -69,7 +82,7 @@ impl PacketTracker {
         // Update the highest packet ID
         self.highest_packet_id = packet_id;
 
-        true
+        UpdateResult::Success
     }
 
     /// Gets the highest packet ID received.
