@@ -1,5 +1,4 @@
 use crate::package::SlowPackage;
-use crate::socket::SlowSocket;
 use crate::tracker::PacketTracker;
 use bincode; // Add bincode for serialization
 use serde::{Deserialize, Serialize};
@@ -144,9 +143,9 @@ pub struct SlowLink {
     /// The remote junction address.
     remote_address: SocketAddr,
     /// Counter for packets successfully sent through this link.
-    packets_sent: u64,
+    packed_count: u64,
     /// Packet state tracking for received packets.
-    packet_state: PacketTracker,
+    unpacked_tracker: PacketTracker,
 }
 
 impl SlowLink {
@@ -162,35 +161,31 @@ impl SlowLink {
     pub fn new(remote_address: SocketAddr) -> std::io::Result<Self> {
         Ok(Self {
             remote_address,
-            packets_sent: 0,
-            packet_state: PacketTracker::new(),
+            packed_count: 0,
+            unpacked_tracker: PacketTracker::new(),
         })
     }
 
-    /// Sends a `SlowPackage` to the remote junction.
+    /// Creates a packet buffer from a `SlowPackage`.
     ///
-    /// This method puts the package into a buffer preceded by a SlowLinkPayloadPacket
-    /// and sends that buffer using the socket.
+    /// This method puts the package into a buffer preceded by a SlowLinkPayloadPacket header.
     ///
     /// # Arguments
     ///
-    /// * `package` - The `SlowPackage` to send
-    /// * `socket` - A `SlowSocket` that can send data
+    /// * `package` - The `SlowPackage` to pack
     ///
     /// # Returns
     ///
-    /// * `Result<(), std::io::Error>` - A result indicating success or an error
-    pub async fn send(
-        &mut self,
-        package: &SlowPackage,
-        socket: &SlowSocket,
-    ) -> std::io::Result<()> {
+    /// * `Option<Vec<u8>>` - The packed buffer containing header and package data, or None if serialization fails
+    pub fn pack(&mut self, package: &SlowPackage) -> Option<Vec<u8>> {
         // Create a new payload packet with the current packets_sent as the ID
-        let payload_packet = SlowLinkPayloadPacket::new(self.packets_sent);
+        let payload_packet = SlowLinkPayloadPacket::new(self.packed_count);
 
         // Serialize the payload packet into a buffer
-        let payload_header = bincode::serialize(&payload_packet)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let payload_header = match bincode::serialize(&payload_packet) {
+            Ok(header) => header,
+            Err(_) => return None,
+        };
 
         // Get the package data
         let package_data = package.package();
@@ -200,16 +195,13 @@ impl SlowLink {
         buffer.extend_from_slice(&payload_header);
         buffer.extend_from_slice(&package_data);
 
-        // Send the combined buffer to the remote junction
-        socket.send(&buffer, &self.remote_address).await?;
+        // Increment the packages_sent counter
+        self.packed_count += 1;
 
-        // Increment the packages_sent counter on success
-        self.packets_sent += 1;
-
-        Ok(())
+        Some(buffer)
     }
 
-    /// Process a received packet and determine its type.
+    /// Unpacks a received packet and determine its type.
     ///
     /// This method analyzes the provided byte slice to determine whether it contains
     /// a payload packet or an acknowledgment packet. For payload packets, it returns
@@ -223,7 +215,7 @@ impl SlowLink {
     /// # Returns
     ///
     /// * `Option<usize>` - Some containing the starting index of payload data for payload packets, or None for ack packets
-    pub fn process(&mut self, data: &[u8]) -> Option<usize> {
+    pub fn unpack(&mut self, data: &[u8]) -> Option<usize> {
         // Check if data is empty
         if data.is_empty() {
             return None;
@@ -252,14 +244,15 @@ impl SlowLink {
             &data[0..std::mem::size_of::<SlowLinkPayloadPacket>()],
         ) {
             // Update the packet state with this new packet ID
-            self.packet_state.update(payload_packet.packet_id);
+            if !self.unpacked_tracker.update(payload_packet.packet_id) {
+                return None;
+            }
 
             // Return the index where payload data starts
             let payload_start = std::mem::size_of::<SlowLinkPayloadPacket>();
-            Some(payload_start)
-        } else {
-            None
+            return Some(payload_start);
         }
+        None
     }
 
     /// Process an acknowledgment packet.
@@ -290,6 +283,6 @@ impl SlowLink {
     ///
     /// * `u64` - The count of successfully sent packets.
     pub fn packets_sent(&self) -> u64 {
-        self.packets_sent
+        self.packed_count
     }
 }
