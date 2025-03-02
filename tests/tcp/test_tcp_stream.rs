@@ -1,11 +1,12 @@
 use slow::tcp::tcp_listener::SlowTcpListener;
 use slow::tcp::tcp_stream::SlowTcpStream;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
+use std::str::FromStr;
 use tokio::task;
 
 #[tokio::test]
-async fn test_tcp_socket() {
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
+async fn test_tcp_stream() {
+    let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
     let listener = SlowTcpListener::new(addr).await.unwrap();
     let server_addr = listener.local_addr().unwrap();
 
