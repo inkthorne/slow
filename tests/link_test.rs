@@ -30,5 +30,11 @@ fn test_slow_link_basic() {
     // Unpack the data and verify successful unpacking
     let packed_data = packed_data.unwrap();
     let packet = link.unpack(&packed_data);
-    assert!(packet != SlowLinkPacket::Invalid);
+    match packet {
+        SlowLinkPacket::Payload(payload_packet) => {
+            assert_eq!(payload_packet.packet_id, 1);
+            assert_eq!(payload_packet.payload, package.package());
+        }
+        _ => panic!("Unexpected packet type"),
+    }
 }
