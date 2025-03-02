@@ -12,7 +12,7 @@ use serde_json::Value;
 /// The `PackageType` enum defines the different types of packages that can be
 /// transmitted in the Slow network. Each variant represents a specific type
 /// of package.
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum PackageType {
     Hello,
     Ping,
@@ -82,6 +82,9 @@ impl TryFrom<u8> for PackageType {
 /// sender ID, hop count, and payload size.
 #[derive(Serialize, Deserialize)]
 pub struct SlowPackageHeader {
+    /// The type of data contained in the payload (see PayloadType).
+    pub package_type: u8,
+
     /// The ID of the recipient junction.
     pub recipient_id: JunctionId,
 
@@ -90,9 +93,6 @@ pub struct SlowPackageHeader {
 
     /// The number of hops the package has taken.
     pub hop_count: u8,
-
-    /// The type of data contained in the payload (see PayloadType).
-    pub package_type: u8,
 
     /// An incrementing number that uniquely identifies a package from the specific sender.
     pub package_id: u32,

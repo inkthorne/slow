@@ -41,21 +41,15 @@ impl From<u8> for SlowLinkPacketType {
 }
 
 //=============================================================================
-// UnpackResult
+// SlowLinkPacketHeader
 //=============================================================================
-/// Represents the result of unpacking a packet.
+/// A struct representing a payload packet sent through a SlowLink.
 ///
-/// This enum defines the possible outcomes of unpacking a packet.
-#[derive(Debug, PartialEq)]
-pub enum UnpackResult {
-    /// Indicates that the packet was successfully unpacked and provides the starting index of payload data.
-    Payload(usize),
-    /// Indicates that the packet was a control packet.
-    Control,
-    /// Indicates that the packet was a duplicate packet and was discarded.
-    Duplicate,
-    /// Indicates that the packet was too old to be tracked and was discarded.
-    Old,
+/// This struct uniquely identifies a payload packet with an ID.
+#[derive(Serialize, Deserialize)]
+pub struct SlowLinkPacketHeader {
+    /// The type of packet (see SlowLinkPacketType).
+    pub packet_type: u8,
 }
 
 //=============================================================================
@@ -124,6 +118,24 @@ impl SlowLinkAckPacket {
             packet_bitfield,
         }
     }
+}
+
+//=============================================================================
+// UnpackResult
+//=============================================================================
+/// Represents the result of unpacking a packet.
+///
+/// This enum defines the possible outcomes of unpacking a packet.
+#[derive(Debug, PartialEq)]
+pub enum UnpackResult {
+    /// Indicates that the packet was successfully unpacked and provides the starting index of payload data.
+    Payload(usize),
+    /// Indicates that the packet was a control packet.
+    Control,
+    /// Indicates that the packet was a duplicate packet and was discarded.
+    Duplicate,
+    /// Indicates that the packet was too old to be tracked and was discarded.
+    Old,
 }
 
 //=============================================================================

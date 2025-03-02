@@ -36,6 +36,9 @@ fn test_slow_link_basic() {
             // Extract and verify the package data
             let package_data = &packed_data[start_idx..];
             assert!(!package_data.is_empty());
+            // let _package = SlowPackage::unpackage(package_data).unwrap();
+            // let package_type = package.package_type().unwrap();
+            // assert!(package_type == PackageType::Ping);
         }
         _ => panic!("Expected UnpackResult::Payload, got {:?}", unpack_result),
     }
