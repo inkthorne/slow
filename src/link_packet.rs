@@ -84,7 +84,7 @@ impl SlowLinkPayloadPacket {
     ///
     /// This method serializes the packet's fields into a Vec<u8> using the byteorder crate
     /// with a Cursor writer. The packet_type is written as a u8, followed by the packet_id as a u64
-    /// in big-endian format, and finally the payload data.
+    /// in big-endian format, the payload_size as a u16 in big-endian format, and finally the payload data.
     ///
     /// # Returns
     ///
@@ -106,6 +106,7 @@ impl SlowLinkPayloadPacket {
 
         // Write the payload data by extending the buffer
         buffer.extend_from_slice(&self.payload);
+
         buffer
     }
 
@@ -189,7 +190,7 @@ pub struct SlowLinkAckPacket {
     /// The highest unique packet identifier received by the sender.
     pub highest_packet_id: u64,
     /// A bitfield representing which packet ids have been received relative
-    /// to the `higest_packet_id`.
+    /// to the `highest_packet_id`.
     pub packet_bitfield: u64,
 }
 
@@ -198,7 +199,8 @@ impl SlowLinkAckPacket {
     ///
     /// # Arguments
     ///
-    /// * `packet_id` - The unique identifier for the packet
+    /// * `highest_packet_id` - The highest packet ID received so far
+    /// * `packet_bitfield` - Bitfield representing received packets relative to highest_packet_id
     ///
     /// # Returns
     ///

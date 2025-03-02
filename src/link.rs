@@ -44,7 +44,7 @@ impl SlowLink {
     ///
     /// # Arguments
     ///
-    /// * `remote_addr` - The address of the remote junction
+    /// * `remote_address` - The address of the remote junction
     ///
     /// # Returns
     ///
@@ -82,9 +82,7 @@ impl SlowLink {
     /// Unpacks a received packet and determine its type.
     ///
     /// This method analyzes the provided byte slice to determine whether it contains
-    /// a payload packet or an acknowledgment packet. For payload packets, it returns
-    /// the index where payload data begins (after the SlowLinkPayloadPacket header).
-    /// For acknowledgment packets, it returns None.
+    /// a payload packet or an acknowledgment packet, then processes it accordingly.
     ///
     /// # Arguments
     ///
@@ -92,7 +90,7 @@ impl SlowLink {
     ///
     /// # Returns
     ///
-    /// * `UnpackResult` - The result of unpacking the packet
+    /// * `SlowLinkPacket` - The unpacked packet
     pub fn unpack(&mut self, data: &[u8]) -> SlowLinkPacket {
         if data.is_empty() {
             return SlowLinkPacket::Invalid;
@@ -109,15 +107,11 @@ impl SlowLink {
         packet
     }
 
-    /// Process a payload packet and extract the starting index of its data.
+    /// Process a payload packet by updating the packet tracker.
     ///
     /// # Arguments
     ///
-    /// * `data` - The received payload packet as a byte slice
-    ///
-    /// # Returns
-    ///
-    /// * `UnpackResult` - The result of processing the payload packet
+    /// * `payload_packet` - The received payload packet
     fn process_payload(&mut self, payload_packet: &SlowLinkPayloadPacket) {
         // Update the packet tracker with this new packet ID
         self.unpacked_tracker.update(payload_packet.packet_id);
@@ -127,11 +121,7 @@ impl SlowLink {
     ///
     /// # Arguments
     ///
-    /// * `data` - The received acknowledgment packet as a byte slice
-    ///
-    /// # Returns
-    ///
-    /// * `UnpackResult` - Always UnpackResult::Control for acknowledgment packets
+    /// * `_ack_packet` - The received acknowledgment packet
     fn process_ack(&self, _ack_packet: &SlowLinkAckPacket) {}
 
     /// Returns the remote junction address.
