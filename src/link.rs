@@ -1,7 +1,6 @@
-use crate::link_packet::{SlowLinkPacketType, SlowLinkPayloadPacket};
+use crate::link_packet::{SlowLinkAckPacket, SlowLinkPacket, SlowLinkPayloadPacket};
+use crate::package::SlowPackage;
 use crate::tracker::PacketTracker;
-use crate::{package::SlowPackage, tracker::UpdateResult};
-use bincode;
 use std::net::SocketAddr;
 
 //=============================================================================
@@ -70,28 +69,14 @@ impl SlowLink {
     ///
     /// * `Option<Vec<u8>>` - The packed buffer containing header and package data, or None if serialization fails
     pub fn pack(&mut self, package: &SlowPackage) -> Option<Vec<u8>> {
-        // Create a new payload packet with the current packets_sent as the ID
-        // Increment the packages_sent counter
-        let packed_count = self.packed_count + 1;
-        let payload_packet = SlowLinkPayloadPacket::new(packed_count);
+        self.packed_count += 1;
 
-        // Serialize the payload packet into a buffer
-        let payload_header = match bincode::serialize(&payload_packet) {
-            Ok(header) => header,
-            Err(_) => return None,
-        };
+        let packet_id = self.packed_count;
+        let data = package.package();
+        let payload_packet = SlowLinkPayloadPacket::new(packet_id, data);
+        let packed = payload_packet.pack();
 
-        // Get the package data
-        let package_data = package.package();
-
-        // Combine the payload header and package data
-        let mut buffer = Vec::with_capacity(payload_header.len() + package_data.len());
-        buffer.extend_from_slice(&payload_header);
-        buffer.extend_from_slice(&package_data);
-
-        // Increment the packages_sent counter
-        self.packed_count = packed_count;
-        Some(buffer)
+        Some(packed)
     }
 
     /// Unpacks a received packet and determine its type.
@@ -108,19 +93,20 @@ impl SlowLink {
     /// # Returns
     ///
     /// * `UnpackResult` - The result of unpacking the packet
-    pub fn unpack(&mut self, data: &[u8]) -> UnpackResult {
-        // Check if data is empty
+    pub fn unpack(&mut self, data: &[u8]) -> SlowLinkPacket {
         if data.is_empty() {
-            return UnpackResult::Control;
+            return SlowLinkPacket::Invalid;
         }
 
-        // Match on the packet type
-        match SlowLinkPacketType::try_from(data[0]) {
-            Ok(SlowLinkPacketType::Payload) => self.process_payload(data),
-            Ok(SlowLinkPacketType::Acknowledge) => Self::process_ack(data),
-            Ok(SlowLinkPacketType::Hello) => UnpackResult::Control,
-            Err(_) => UnpackResult::Invalid,
-        }
+        let packet = SlowLinkPacket::unpack(data.to_vec());
+
+        match packet {
+            SlowLinkPacket::Payload(ref payload_packet) => self.process_payload(&payload_packet),
+            SlowLinkPacket::Acknowledge(ref ack_packet) => self.process_ack(&ack_packet),
+            _ => {}
+        };
+
+        packet
     }
 
     /// Process a payload packet and extract the starting index of its data.
@@ -132,21 +118,9 @@ impl SlowLink {
     /// # Returns
     ///
     /// * `UnpackResult` - The result of processing the payload packet
-    fn process_payload(&mut self, data: &[u8]) -> UnpackResult {
-        // Try to deserialize as a payload packet
-        if let Ok(payload_packet) = bincode::deserialize::<SlowLinkPayloadPacket>(
-            &data[0..std::mem::size_of::<SlowLinkPayloadPacket>()],
-        ) {
-            // Update the packet state with this new packet ID
-            if self.unpacked_tracker.update(payload_packet.packet_id) != UpdateResult::Success {
-                return UnpackResult::Duplicate;
-            }
-
-            // Return the index where payload data starts
-            let payload_start = std::mem::size_of::<SlowLinkPayloadPacket>();
-            return UnpackResult::Payload(payload_start);
-        }
-        UnpackResult::Control
+    fn process_payload(&mut self, payload_packet: &SlowLinkPayloadPacket) {
+        // Update the packet tracker with this new packet ID
+        self.unpacked_tracker.update(payload_packet.packet_id);
     }
 
     /// Process an acknowledgment packet.
@@ -158,9 +132,7 @@ impl SlowLink {
     /// # Returns
     ///
     /// * `UnpackResult` - Always UnpackResult::Control for acknowledgment packets
-    fn process_ack(_data: &[u8]) -> UnpackResult {
-        UnpackResult::Control
-    }
+    fn process_ack(&self, _ack_packet: &SlowLinkAckPacket) {}
 
     /// Returns the remote junction address.
     ///

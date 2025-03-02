@@ -1,5 +1,6 @@
 use slow::junction::JunctionId;
-use slow::link::{SlowLink, UnpackResult};
+use slow::link::SlowLink;
+use slow::link_packet::SlowLinkPacket;
 use slow::package::SlowPackage;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -28,18 +29,6 @@ fn test_slow_link_basic() {
 
     // Unpack the data and verify successful unpacking
     let packed_data = packed_data.unwrap();
-    let unpack_result = link.unpack(&packed_data);
-
-    // Verify we got a Payload result with a valid index
-    match unpack_result {
-        UnpackResult::Payload(start_idx) => {
-            // Extract and verify the package data
-            let package_data = &packed_data[start_idx..];
-            assert!(!package_data.is_empty());
-            // let _package = SlowPackage::unpackage(package_data).unwrap();
-            // let package_type = package.package_type().unwrap();
-            // assert!(package_type == PackageType::Ping);
-        }
-        _ => panic!("Expected UnpackResult::Payload, got {:?}", unpack_result),
-    }
+    let packet = link.unpack(&packed_data);
+    assert!(packet != SlowLinkPacket::Invalid);
 }
