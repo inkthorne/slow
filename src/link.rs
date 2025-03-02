@@ -1,124 +1,8 @@
+use crate::link_packet::{SlowLinkPacketType, SlowLinkPayloadPacket};
 use crate::tracker::PacketTracker;
 use crate::{package::SlowPackage, tracker::UpdateResult};
-use bincode; // Add bincode for serialization
-use serde::{Deserialize, Serialize};
+use bincode;
 use std::net::SocketAddr;
-
-//=============================================================================
-// SlowLinkPacketType
-//=============================================================================
-/// Represents the type of a SlowLink packet.
-///
-/// This enum defines the possible packet types that can be transmitted through a SlowLink.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SlowLinkPacketType {
-    /// Indicates an acknowledgment packet.
-    Acknowledge,
-    /// Indicates a payload packet carrying data.
-    Payload,
-}
-
-impl From<u8> for SlowLinkPacketType {
-    /// Converts a `u8` value into a `SlowLinkPacketType`.
-    ///
-    /// This function maps specific `u8` values to their corresponding `SlowLinkPacketType` variants.
-    /// If the provided value doesn't match any known packet type, it defaults to `SlowLinkPacketType::Payload`.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - The `u8` value to convert.
-    ///
-    /// # Returns
-    ///
-    /// * `SlowLinkPacketType` - The corresponding enum variant.
-    fn from(value: u8) -> Self {
-        match value {
-            0 => SlowLinkPacketType::Acknowledge,
-            1 => SlowLinkPacketType::Payload,
-            _ => SlowLinkPacketType::Payload, // Default to Payload for unknown values
-        }
-    }
-}
-
-//=============================================================================
-// SlowLinkPacketHeader
-//=============================================================================
-/// A struct representing a payload packet sent through a SlowLink.
-///
-/// This struct uniquely identifies a payload packet with an ID.
-#[derive(Serialize, Deserialize)]
-pub struct SlowLinkPacketHeader {
-    /// The type of packet (see SlowLinkPacketType).
-    pub packet_type: u8,
-}
-
-//=============================================================================
-// SlowLinkPayloadPacket
-//=============================================================================
-/// A struct representing a payload packet sent through a SlowLink.
-///
-/// This struct uniquely identifies a payload packet with an ID.
-#[derive(Serialize, Deserialize)]
-pub struct SlowLinkPayloadPacket {
-    /// The type of packet (see SlowLinkPacketType).
-    pub packet_type: u8,
-    /// The unique identifier for the packet.
-    pub packet_id: u64,
-}
-
-impl SlowLinkPayloadPacket {
-    /// Creates a new `SlowLinkPayloadPacket` with the packet type set to Payload.
-    ///
-    /// # Arguments
-    ///
-    /// * `packet_id` - The unique identifier for the packet
-    ///
-    /// # Returns
-    ///
-    /// * `SlowLinkPayloadPacket` - A new instance with packet_type set to Payload
-    pub fn new(packet_id: u64) -> Self {
-        Self {
-            packet_type: SlowLinkPacketType::Payload as u8,
-            packet_id,
-        }
-    }
-}
-
-//=============================================================================
-// SlowLinkAckPacket
-//=============================================================================
-/// A struct representing an acknowledgment packet sent through a SlowLink.
-///
-/// This struct uniquely identifies an acknowledgment packet with an ID.
-#[derive(Serialize, Deserialize)]
-pub struct SlowLinkAckPacket {
-    /// The type of packet (see SlowLinkPacketType).
-    pub packet_type: u8,
-    /// The highest unique packet identifier received by the sender.
-    pub highest_packet_id: u64,
-    /// A bitfield representing which packet ids have been received relative
-    /// to the `higest_packet_id`.
-    pub packet_bitfield: u64,
-}
-
-impl SlowLinkAckPacket {
-    /// Creates a new `SlowLinkAckPacket` with the packet type set to Acknowledge.
-    ///
-    /// # Arguments
-    ///
-    /// * `packet_id` - The unique identifier for the packet
-    ///
-    /// # Returns
-    ///
-    /// * `SlowLinkAckPacket` - A new instance with packet_type set to Acknowledge
-    pub fn new(highest_packet_id: u64, packet_bitfield: u64) -> Self {
-        Self {
-            packet_type: SlowLinkPacketType::Acknowledge as u8,
-            highest_packet_id,
-            packet_bitfield,
-        }
-    }
-}
 
 //=============================================================================
 // UnpackResult
@@ -136,30 +20,8 @@ pub enum UnpackResult {
     Duplicate,
     /// Indicates that the packet was too old to be tracked and was discarded.
     Old,
-}
-
-//=============================================================================
-// SlowLinkPacket
-//=============================================================================
-/// Represents the result of processing a packet.
-///
-/// This enum contains either a payload packet with its data or an acknowledgment packet.
-#[derive(Debug)]
-pub enum SlowLinkPacket {
-    /// A payload packet with its ID and the associated data
-    Payload {
-        /// The unique identifier for the packet
-        packet_id: u64,
-        /// The payload data
-        data: Vec<u8>,
-    },
-    /// An acknowledgment packet
-    Acknowledge {
-        /// The highest unique packet identifier received
-        highest_packet_id: u64,
-        /// A bitfield representing which packets have been received
-        packet_bitfield: u64,
-    },
+    /// Indicates that the packet was invalid or malformed.
+    Invalid,
 }
 
 //=============================================================================
@@ -253,10 +115,11 @@ impl SlowLink {
         }
 
         // Match on the packet type
-        let packet_type = SlowLinkPacketType::from(data[0]);
-        match packet_type {
-            SlowLinkPacketType::Payload => self.process_payload(data),
-            SlowLinkPacketType::Acknowledge => Self::process_ack(data),
+        match SlowLinkPacketType::try_from(data[0]) {
+            Ok(SlowLinkPacketType::Payload) => self.process_payload(data),
+            Ok(SlowLinkPacketType::Acknowledge) => Self::process_ack(data),
+            Ok(SlowLinkPacketType::Hello) => UnpackResult::Control,
+            Err(_) => UnpackResult::Invalid,
         }
     }
 
