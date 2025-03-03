@@ -3,11 +3,11 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::net::UdpSocket;
 
-/// A `SlowSocket` represents a UDP connection that can send and receive `SlowPackage` packets.
+/// A `SlowUdpSocket` represents a UDP connection that can send and receive `SlowPackage` packets.
 ///
 /// This struct provides methods to create a new connection, send packages, receive packages, and retrieve the local address of the socket.
 /// It is designed to work asynchronously using the Tokio runtime.
-pub struct SlowSocket {
+pub struct SlowUdpSocket {
     /// The UDP socket used for the connection.
     socket: UdpSocket,
 
@@ -18,8 +18,8 @@ pub struct SlowSocket {
     received_packet_count: AtomicU32,
 }
 
-impl SlowSocket {
-    /// Creates a new `SlowSocket` instance.
+impl SlowUdpSocket {
+    /// Creates a new `SlowUdpSocket` instance.
     ///
     /// # Arguments
     ///
@@ -27,10 +27,10 @@ impl SlowSocket {
     ///
     /// # Returns
     ///
-    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowSocket` or an error if binding fails.
+    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowUdpSocket` or an error if binding fails.
     pub async fn new(addr: SocketAddr) -> std::io::Result<Self> {
         let socket = UdpSocket::bind(addr).await?;
-        Ok(SlowSocket {
+        Ok(SlowUdpSocket {
             socket,
             sent_packet_count: AtomicU32::new(0),
             received_packet_count: AtomicU32::new(0),

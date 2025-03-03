@@ -1,11 +1,11 @@
 use crate::package::{PackageType, SlowPackage};
 use crate::route::RouteTable;
-use crate::socket::SlowSocket;
+use crate::udp::udp_socket::SlowUdpSocket;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use tokio::sync::{Mutex, Notify};
 
 #[derive(Clone, PartialEq, Debug)]
@@ -60,7 +60,7 @@ impl std::fmt::Display for JunctionId {
 /// and run the main loop. It is designed to work asynchronously using the Tokio runtime.
 pub struct SlowJunction {
     /// The connection used by the junction.
-    connection: SlowSocket,
+    connection: SlowUdpSocket,
 
     /// A set of known junction addresses.
     known_junctions: Mutex<HashSet<SocketAddr>>,
@@ -120,7 +120,7 @@ impl SlowJunction {
     ///
     /// * `Result<Arc<Self>, std::io::Error>` - A result containing a new instance of `SlowJunction` or an error.
     pub async fn new(addr: SocketAddr, junction_id: JunctionId) -> std::io::Result<Arc<Self>> {
-        let connection = SlowSocket::new(addr).await?;
+        let connection = SlowUdpSocket::new(addr).await?;
         let junction = Arc::new(Self {
             connection,
             known_junctions: Mutex::new(HashSet::new()),

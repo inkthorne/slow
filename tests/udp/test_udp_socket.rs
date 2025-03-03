@@ -1,14 +1,14 @@
 use slow::junction::JunctionId;
 use slow::package::SlowPackage;
-use slow::socket::SlowSocket;
+use slow::udp::udp_socket::SlowUdpSocket;
 use std::net::SocketAddr;
 
 #[tokio::test]
-async fn test_socket_pair() {
+async fn test_udp_socket() {
     let addr1: SocketAddr = "127.0.0.1:8081".parse().unwrap();
     let addr2: SocketAddr = "127.0.0.1:8082".parse().unwrap();
-    let connection1 = SlowSocket::new(addr1).await.unwrap();
-    let connection2 = SlowSocket::new(addr2).await.unwrap();
+    let connection1 = SlowUdpSocket::new(addr1).await.unwrap();
+    let connection2 = SlowUdpSocket::new(addr2).await.unwrap();
 
     let json = serde_json::json!({ "key": "value" });
     let sender_id = JunctionId::new("A");
