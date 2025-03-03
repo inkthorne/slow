@@ -7,6 +7,7 @@ use tokio::time::timeout;
 
 const HELLO_MESSAGE: &[u8] = b"SLOW_HELLO";
 const HELLO_RESPONSE: &[u8] = b"SLOW_WELCOME";
+const MAX_FRAME_SIZE: usize = 1024 * 1024; // 1MB limit
 
 /// A TCP-based link for the SLOW protocol that handles connection establishment
 /// and data transfer with length-prefixed framing.
@@ -67,6 +68,14 @@ impl SlowTcpLink {
         println!("listen success!");
         Ok(slow_link)
     }
+
+    /// Returns the maximum allowed frame size for this link implementation.
+    ///
+    /// # Returns
+    /// The maximum number of bytes that can be sent in a single frame
+    pub fn max_frame_size() -> usize {
+        MAX_FRAME_SIZE
+    }
 }
 
 // ---
@@ -88,9 +97,8 @@ impl SlowTcpLink {
     /// # Errors
     /// Returns an error if the data is too large or if the transmission fails
     pub async fn send(&self, data: &[u8]) -> io::Result<usize> {
-        const MAX_SIZE: usize = 1024 * 1024; // 1MB limit
-
-        if data.len() > MAX_SIZE {
+        // Ensure the data is not too large
+        if data.len() > MAX_FRAME_SIZE {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("Data size exceeds 1MB limit: {} bytes", data.len()),

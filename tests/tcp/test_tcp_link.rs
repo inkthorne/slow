@@ -59,4 +59,64 @@ async fn test_tcp_link() {
         response_message,
         "Response data does not match sent data"
     );
+
+    // Test sending maximum size data
+    let max_size = SlowTcpLink::max_frame_size();
+    println!(
+        "Testing maximum size data transfer ({}B)...",
+        max_size
+    );
+
+    // Create a buffer filled with a repeating pattern for testing
+    let max_test_data = vec![0xAB; max_size];
+
+    // Create a receive buffer of the same size
+    let mut max_receive_buffer = vec![0u8; max_size];
+
+    // Send the maximum size data
+    connector_link
+        .send(&max_test_data)
+        .await
+        .expect("Failed to send maximum size data");
+
+    // Receive the maximum size data
+    let max_bytes_read = listener_link
+        .receive(&mut max_receive_buffer)
+        .await
+        .expect("Failed to receive maximum size data");
+
+    // Verify the data was received correctly
+    assert_eq!(
+        max_bytes_read, 
+        max_size,
+        "Received data size does not match max frame size"
+    );
+    assert_eq!(
+        &max_receive_buffer[..max_bytes_read],
+        &max_test_data,
+        "Maximum size received data does not match sent data"
+    );
+
+    // Test sending data that exceeds the maximum frame size by 1 byte
+    println!("Testing oversized data transfer ({}B)...", max_size + 1);
+    
+    // Create a buffer that's 1 byte larger than the maximum allowed size
+    let oversized_data = vec![0xCD; max_size + 1];
+    
+    // Attempt to send the oversized data - this should fail
+    let send_result = connector_link.send(&oversized_data).await;
+    
+    // Verify that the send operation failed with the expected error
+    assert!(send_result.is_err(), "Sending oversized data should fail");
+    
+    if let Err(e) = send_result {
+        // Check that it's the right kind of error
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, 
+            "Expected InvalidInput error kind for oversized data");
+        
+        // Verify the error message mentions the size limit
+        let error_msg = e.to_string().to_lowercase();
+        assert!(error_msg.contains("exceeds") && error_msg.contains("limit"), 
+            "Error message should indicate that the data exceeds the size limit");
+    }
 }
