@@ -75,13 +75,16 @@ impl SlowUdpSocket {
 
     /// Receives raw data from the socket.
     ///
+    /// # Arguments
+    ///
+    /// * `buf` - A mutable slice to write the received data into
+    ///
     /// # Returns
     ///
     /// * `Option<(Vec<u8>, SocketAddr)>` - An option containing the received data as a Vec<u8> and the source address,
     ///   or `None` if an error occurs.
-    pub async fn receive(&self) -> Option<(Vec<u8>, SocketAddr)> {
-        let mut buf = [0; 4096];
-        match self.socket.recv_from(&mut buf).await {
+    pub async fn receive(&self, buf: &mut [u8]) -> Option<(Vec<u8>, SocketAddr)> {
+        match self.socket.recv_from(buf).await {
             Ok((amt, src)) => {
                 let data = buf[..amt].to_vec();
                 self.received_packet_count.fetch_add(1, Ordering::SeqCst);
@@ -97,7 +100,8 @@ impl SlowUdpSocket {
     ///
     /// * `Option<(SlowPackage, SocketAddr)>` - An option containing the received package and the source address, or `None` if an error occurs.
     pub async fn receive_package(&self) -> Option<(SlowPackage, SocketAddr)> {
-        if let Some((data, src)) = self.receive().await {
+        let mut buf = [0; 4096];
+        if let Some((data, src)) = self.receive(&mut buf).await {
             // Extract the package from the raw data
             // Note: No need to increment the counter since receive() already does that
             SlowPackage::unpackage(&data).map(|package| (package, src))

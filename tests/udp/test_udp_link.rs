@@ -1,17 +1,17 @@
 use slow::junction::JunctionId;
-use slow::link::SlowLink;
 use slow::link_packet::SlowLinkPacket;
 use slow::package::SlowPackage;
+use slow::udp::udp_link::SlowUdpLink;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
 #[test]
-fn test_slow_link_basic() {
+fn test_slow_udp_link() {
     // Create a test socket address
     let addr = SocketAddr::from_str("127.0.0.1:3000").unwrap();
 
     // Create a new SlowLink instance
-    let mut link = SlowLink::new(addr).unwrap();
+    let mut link = SlowUdpLink::new(addr).unwrap();
 
     // Verify the initial state
     assert_eq!(link.remote_address(), addr);

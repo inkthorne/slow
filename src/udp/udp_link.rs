@@ -24,13 +24,13 @@ pub enum UnpackResult {
 }
 
 //=============================================================================
-// SlowLink
+// SlowUdpLink
 //=============================================================================
-/// A `SlowLink` represents a direct connection between two junctions in the network.
+/// A `SlowUdpLink` represents a direct connection between two junctions in the network.
 ///
 /// This struct provides methods to create a new link and send packages through it.
 /// It is designed to simplify direct communication between two specific junctions.
-pub struct SlowLink {
+pub struct SlowUdpLink {
     /// The remote junction address.
     remote_address: SocketAddr,
     /// Counter for packets successfully sent through this link.
@@ -39,8 +39,8 @@ pub struct SlowLink {
     unpacked_tracker: PacketTracker,
 }
 
-impl SlowLink {
-    /// Creates a new `SlowLink` instance.
+impl SlowUdpLink {
+    /// Creates a new `SlowUdpLink` instance.
     ///
     /// # Arguments
     ///
@@ -48,7 +48,7 @@ impl SlowLink {
     ///
     /// # Returns
     ///
-    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowLink` or an error
+    /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowUdpLink` or an error
     pub fn new(remote_address: SocketAddr) -> std::io::Result<Self> {
         Ok(Self {
             remote_address,
