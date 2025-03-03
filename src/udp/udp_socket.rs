@@ -83,15 +83,9 @@ impl SlowUdpSocket {
     ///
     /// * `Option<(Vec<u8>, SocketAddr)>` - An option containing the received data as a Vec<u8> and the source address,
     ///   or `None` if an error occurs.
-    pub async fn receive(&self, buf: &mut [u8]) -> Option<(Vec<u8>, SocketAddr)> {
-        match self.socket.recv_from(buf).await {
-            Ok((amt, src)) => {
-                let data = buf[..amt].to_vec();
-                self.received_packet_count.fetch_add(1, Ordering::SeqCst);
-                Some((data, src))
-            }
-            Err(_) => None,
-        }
+    pub async fn receive(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+        self.received_packet_count.fetch_add(1, Ordering::SeqCst);
+        self.socket.recv_from(buf).await
     }
 
     /// Receives a package from the socket.
@@ -101,10 +95,11 @@ impl SlowUdpSocket {
     /// * `Option<(SlowPackage, SocketAddr)>` - An option containing the received package and the source address, or `None` if an error occurs.
     pub async fn receive_package(&self) -> Option<(SlowPackage, SocketAddr)> {
         let mut buf = [0; 4096];
-        if let Some((data, src)) = self.receive(&mut buf).await {
+        if let Ok((size, src)) = self.receive(&mut buf).await {
             // Extract the package from the raw data
             // Note: No need to increment the counter since receive() already does that
-            SlowPackage::unpackage(&data).map(|package| (package, src))
+            let stuff = buf[..size].to_vec();
+            SlowPackage::unpackage(&stuff).map(|package| (package, src))
         } else {
             None
         }

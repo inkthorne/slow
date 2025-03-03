@@ -2,16 +2,20 @@ use slow::junction::JunctionId;
 use slow::link_packet::SlowLinkPacket;
 use slow::package::SlowPackage;
 use slow::udp::udp_link::SlowUdpLink;
+use slow::udp::udp_socket::SlowUdpSocket;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
-#[test]
-fn test_slow_udp_link() {
-    // Create a test socket address
+#[tokio::test]
+async fn test_slow_udp_link() {
+    // Create a UDP socket first
     let addr = SocketAddr::from_str("127.0.0.1:3000").unwrap();
+    let socket = SlowUdpSocket::new(addr).await.unwrap();
+    let socket = Arc::new(socket);
 
-    // Create a new SlowLink instance
-    let mut link = SlowUdpLink::new(addr).unwrap();
+    // Create a new SlowLink instance with the socket
+    let mut link = SlowUdpLink::new(addr, socket).unwrap();
 
     // Verify the initial state
     assert_eq!(link.remote_address(), addr);

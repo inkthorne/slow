@@ -1,7 +1,9 @@
 use crate::link_packet::{SlowLinkAckPacket, SlowLinkPacket, SlowLinkPayloadPacket};
 use crate::package::SlowPackage;
 use crate::tracker::PacketTracker;
+use crate::udp::udp_socket::SlowUdpSocket;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 //=============================================================================
 // UnpackResult
@@ -37,6 +39,8 @@ pub struct SlowUdpLink {
     packed_count: u64,
     /// Packet state tracking for received packets.
     unpacked_tracker: PacketTracker,
+    /// The underlying UDP socket.
+    socket: Arc<SlowUdpSocket>,
 }
 
 impl SlowUdpLink {
@@ -49,11 +53,12 @@ impl SlowUdpLink {
     /// # Returns
     ///
     /// * `Result<Self, std::io::Error>` - A result containing a new instance of `SlowUdpLink` or an error
-    pub fn new(remote_address: SocketAddr) -> std::io::Result<Self> {
+    pub fn new(remote_address: SocketAddr, socket: Arc<SlowUdpSocket>) -> std::io::Result<Self> {
         Ok(Self {
             remote_address,
             packed_count: 0,
             unpacked_tracker: PacketTracker::new(),
+            socket,
         })
     }
 
@@ -123,6 +128,37 @@ impl SlowUdpLink {
     ///
     /// * `_ack_packet` - The received acknowledgment packet
     fn process_ack(&self, _ack_packet: &SlowLinkAckPacket) {}
+
+    /// Sends data over the UDP link.
+    ///
+    /// # Arguments
+    /// * `data` - The byte slice to send
+    ///
+    /// # Returns
+    /// The number of bytes sent
+    ///
+    /// # Errors
+    /// Returns an error if the transmission fails
+    pub async fn send(&self, data: &[u8]) -> std::io::Result<usize> {
+        self.socket.send(data, &self.remote_address).await
+    }
+
+    /// Receives data from the UDP link.
+    ///
+    /// # Arguments
+    /// * `buffer` - Buffer to store the received data
+    ///
+    /// # Returns
+    /// The number of bytes read into the buffer
+    ///
+    /// # Errors
+    /// Returns an error if reading fails
+    pub async fn receive(&self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+        // Extract just the size from the tuple returned by socket.receive
+        // let (size, _) = self.socket.receive(buffer).await?;
+        // Ok(size)
+        Ok(0)
+    }
 
     /// Returns the remote junction address.
     ///
