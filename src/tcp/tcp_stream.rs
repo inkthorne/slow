@@ -11,8 +11,10 @@ use tokio::sync::Mutex;
 /// allowing multiple parts of the application to share and use the same
 /// network connection safely.
 pub struct SlowTcpStream {
-    /// The underlying Tokio TCP stream
-    inner: Arc<Mutex<TcpStream>>,
+    /// The read half of the underlying Tokio TCP stream
+    reader: Arc<Mutex<tokio::net::tcp::OwnedReadHalf>>,
+    /// The write half of the underlying Tokio TCP stream
+    writer: Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>,
 }
 
 impl SlowTcpStream {
@@ -36,8 +38,12 @@ impl SlowTcpStream {
     /// # Returns
     /// * `Self` - A new SlowTcpStream instance
     pub fn new(stream: TcpStream) -> Self {
+        // Split the stream into read and write halves
+        let (read_half, write_half) = stream.into_split();
+
         SlowTcpStream {
-            inner: Arc::new(Mutex::new(stream)),
+            reader: Arc::new(Mutex::new(read_half)),
+            writer: Arc::new(Mutex::new(write_half)),
         }
     }
 
@@ -51,11 +57,11 @@ impl SlowTcpStream {
     /// # Returns
     /// * `io::Result<usize>` - The number of bytes written or an IO error
     pub async fn write(&self, data: &[u8]) -> io::Result<usize> {
-        let mut stream = self.inner.lock().await;
+        let mut write_half = self.writer.lock().await;
         let data_len = data.len();
 
         // Use write_all to ensure all bytes are written
-        stream.write_all(data).await?;
+        write_half.write_all(data).await?;
 
         Ok(data_len)
     }
@@ -70,8 +76,8 @@ impl SlowTcpStream {
     /// # Returns
     /// * `io::Result<usize>` - The number of bytes read or an IO error
     pub async fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut stream = self.inner.lock().await;
-        stream.read(buf).await
+        let mut read_half = self.reader.lock().await;
+        read_half.read(buf).await
     }
 
     /// Reads exactly enough bytes to fill the buffer
@@ -86,18 +92,36 @@ impl SlowTcpStream {
     /// # Returns
     /// * `io::Result<usize>` - The number of bytes read or an IO error
     pub async fn read_exact(&self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut stream = self.inner.lock().await;
-        stream.read_exact(buf).await
+        let mut read_half = self.reader.lock().await;
+        read_half.read_exact(buf).await?;
+        Ok(buf.len())
     }
 
-    /// Get a clone of the inner stream for sharing
-    ///
-    /// This method provides access to the underlying Arc<Mutex<TcpStream>>,
-    /// allowing the stream to be shared across multiple consumers.
+    /// Get a clone of the read half for sharing
     ///
     /// # Returns
-    /// * `Arc<Mutex<TcpStream>>` - A clone of the inner TCP stream reference
+    /// * `Arc<Mutex<tokio::net::tcp::OwnedReadHalf>>` - A clone of the read half reference
+    pub fn clone_read_half(&self) -> Arc<Mutex<tokio::net::tcp::OwnedReadHalf>> {
+        Arc::clone(&self.reader)
+    }
+
+    /// Get a clone of the write half for sharing
+    ///
+    /// # Returns
+    /// * `Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>` - A clone of the write half reference
+    pub fn clone_write_half(&self) -> Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>> {
+        Arc::clone(&self.writer)
+    }
+
+    /// Get a clone of the inner stream halves for sharing
+    ///
+    /// This method is maintained for backward compatibility
+    ///
+    /// # Returns
+    /// * `Arc<Mutex<TcpStream>>` - Not available anymore, will panic
     pub fn clone_inner(&self) -> Arc<Mutex<TcpStream>> {
-        Arc::clone(&self.inner)
+        panic!(
+            "clone_inner is no longer available since the stream is now split into read and write halves"
+        )
     }
 }
