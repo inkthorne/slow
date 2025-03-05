@@ -1,11 +1,10 @@
 use crate::junction::JunctionId;
-use crate::package::SlowPackage;
 use crate::tcp::tcp_link::SlowTcpLink;
 use std::collections::HashMap;
-use std::io::{self, Error};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
+use tokio::task;
 
 /// A TCP-based junction that manages multiple TCP links.
 ///
@@ -28,6 +27,10 @@ pub struct SlowTcpJunction {
     junction_map: Arc<Mutex<HashMap<JunctionId, SocketAddr>>>,
 }
 
+// ---
+// SlowTcpJunction: Associated Functions
+// ---
+
 impl SlowTcpJunction {
     /// Creates a new `SlowTcpJunction` bound to the specified address.
     ///
@@ -37,26 +40,26 @@ impl SlowTcpJunction {
     ///
     /// # Returns
     /// A new SlowTcpJunction instance
-    pub fn new(addr: SocketAddr, junction_id: JunctionId) -> Self {
-        SlowTcpJunction {
+    pub fn new(addr: SocketAddr, junction_id: JunctionId) -> Arc<Self> {
+        let junction = SlowTcpJunction {
             links: Arc::new(Mutex::new(Vec::new())),
             links_changed: Arc::new(Notify::new()),
             local_addr: addr,
             junction_id,
             junction_map: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
+        };
 
-    /// Adds a TCP link to the junction.
-    ///
-    /// # Arguments
-    /// * `link` - The SlowTcpLink to add
-    pub fn add_link(&self, link: SlowTcpLink) {
-        let mut links = self.links.lock().unwrap();
-        links.push(link);
-        self.links_changed.notify_one();
+        let junction = Arc::new(junction);
+        junction.clone().start_listening();
+        junction
     }
+}
 
+// ---
+// SlowTcpJunction: Public Functions
+// ---
+
+impl SlowTcpJunction {
     /// Connects to a remote junction at the specified address.
     ///
     /// # Arguments
@@ -107,19 +110,70 @@ impl SlowTcpJunction {
         let map = self.junction_map.lock().unwrap();
         map.get(junction_id).copied()
     }
+}
 
-    /// Waits for a package to be received on any of the links managed by this junction.
+// ---
+// SlowTcpJunction: Prviate Functions
+// ---
+
+impl SlowTcpJunction {
+    /// Adds a TCP link to the junction.
     ///
-    /// This function polls all links in a round-robin fashion until a valid package is received.
-    /// If a link is disconnected or encounters an error, it continues with other links.
+    /// # Arguments
+    /// * `link` - The SlowTcpLink to add
+    fn add_link(&self, link: SlowTcpLink) {
+        let mut links = self.links.lock().unwrap();
+        links.push(link);
+        self.links_changed.notify_one();
+    }
+
+    /// Starts listening for incoming connections on the local address.
     ///
-    /// # Returns
-    /// * `io::Result<SlowPackage>` - The received package, or an error if all links fail
+    /// This method spawns a background task that continuously listens for
+    /// incoming connections on the local address specified during junction creation.
+    /// Each accepted connection is added as a new link to the junction.
+    fn start_listening(self: Arc<Self>) {
+        // Spawn a tokio backgrond task to handle incoming connections
+        task::spawn(async move {
+            loop {
+                match SlowTcpLink::listen(self.local_addr).await {
+                    Ok(link) => {
+                        // Add the new link to the junction
+                        self.clone().start_processing(link);
+                    }
+                    Err(e) => {
+                        eprintln!("SlowTcpJunction: error accepting connection: {}", e);
+                        // Small delay to avoid tight loop on persistent errors
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Starts processing data from a newly established TCP link.
     ///
-    /// # Errors
-    /// Returns an error if no links are available or all links fail to receive data
-    pub async fn wait_for_package(&self) -> io::Result<SlowPackage> {
-        // use futures::future::{FutureExt, select_ok};
-        Err(Error::new(io::ErrorKind::Other, "Not implemented"))
+    /// This method spawns a background task to continuously receive and process data
+    /// from the provided TCP link. It handles incoming data and any errors that occur
+    /// during communication.
+    ///
+    /// # Arguments
+    /// * `link` - The SlowTcpLink to process data from
+    fn start_processing(self: Arc<Self>, link: SlowTcpLink) {
+        // Spawn a tokio background task to handle incoming connections
+        task::spawn(async move {
+            let mut buffer = Vec::with_capacity(SlowTcpLink::max_frame_size());
+            loop {
+                match link.receive(&mut buffer).await {
+                    Ok(size) => {
+                        let _data = &buffer[..size];
+                    }
+                    Err(e) => {
+                        eprintln!("SlowTcpJunction: error on receive: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
     }
 }
