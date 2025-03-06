@@ -2,6 +2,7 @@ use crate::junction::JunctionId;
 use crate::tcp::tcp_link::SlowTcpLink;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 use tokio::task;
@@ -12,7 +13,7 @@ use tokio::task;
 /// TCP endpoints and provides methods to add, remove, and interact with links.
 pub struct SlowTcpJunction {
     /// The collection of TCP links managed by this junction
-    links: Arc<Mutex<Vec<SlowTcpLink>>>,
+    links: Mutex<Vec<Arc<SlowTcpLink>>>,
 
     /// A notification mechanism to signal when links are added/removed
     links_changed: Arc<Notify>,
@@ -25,6 +26,9 @@ pub struct SlowTcpJunction {
 
     /// Maps remote junction IDs to their socket addresses
     junction_map: Arc<Mutex<HashMap<JunctionId, SocketAddr>>>,
+
+    /// Counter for the number of packages received
+    received_package_count: AtomicUsize,
 }
 
 // ---
@@ -42,11 +46,12 @@ impl SlowTcpJunction {
     /// A new SlowTcpJunction instance
     pub fn new(addr: SocketAddr, junction_id: JunctionId) -> Arc<Self> {
         let junction = SlowTcpJunction {
-            links: Arc::new(Mutex::new(Vec::new())),
+            links: Mutex::new(Vec::new()),
             links_changed: Arc::new(Notify::new()),
             local_addr: addr,
             junction_id,
             junction_map: Arc::new(Mutex::new(HashMap::new())),
+            received_package_count: AtomicUsize::new(0),
         };
 
         let junction = Arc::new(junction);
@@ -69,8 +74,65 @@ impl SlowTcpJunction {
     /// Result indicating success or failure
     pub async fn connect(&self, addr: SocketAddr) -> std::io::Result<()> {
         let link = SlowTcpLink::connect(addr).await?;
+        let link = Arc::new(link);
         self.add_link(link);
         Ok(())
+    }
+
+    /// Sends data to all connected links.
+    ///
+    /// This function broadcasts the provided data to all active links managed by this junction.
+    ///
+    /// # Arguments
+    /// * `data` - The byte slice to send
+    /// * `target_junction_id` - The ID of the destination junction (for routing purposes)
+    ///
+    /// # Returns
+    /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
+    pub async fn send(
+        &self,
+        data: &[u8],
+        _target_junction_id: &JunctionId,
+    ) -> std::io::Result<usize> {
+        // Get a reference to all active links
+        let links = self.links.lock().unwrap();
+
+        if links.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "No active links available for sending data",
+            ));
+        }
+
+        let mut last_error = None;
+        let mut bytes_sent = 0;
+
+        // Send the data to all links
+        for link in links.iter() {
+            match link.send(data).await {
+                Ok(sent) => {
+                    // Return the number of bytes sent on the first successful transmission
+                    if bytes_sent == 0 {
+                        bytes_sent = sent;
+                    }
+                }
+                Err(e) => {
+                    // Store the error but continue trying other links
+                    eprintln!("Error sending data on link: {}", e);
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        // If we sent data on at least one link, consider it a success
+        if bytes_sent > 0 {
+            Ok(bytes_sent)
+        } else {
+            // If all links failed, return the last error
+            Err(last_error.unwrap_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::Other, "Failed to send data on any link")
+            }))
+        }
     }
 
     /// Returns the number of active links in this junction.
@@ -87,6 +149,11 @@ impl SlowTcpJunction {
     /// Returns the junction ID.
     pub fn junction_id(&self) -> &JunctionId {
         &self.junction_id
+    }
+
+    /// Returns the count of packages that have been received.
+    pub fn received_package_count(&self) -> usize {
+        self.received_package_count.load(Ordering::Relaxed)
     }
 
     /// Associates a junction ID with a socket address.
@@ -121,7 +188,7 @@ impl SlowTcpJunction {
     ///
     /// # Arguments
     /// * `link` - The SlowTcpLink to add
-    fn add_link(&self, link: SlowTcpLink) {
+    fn add_link(&self, link: Arc<SlowTcpLink>) {
         let mut links = self.links.lock().unwrap();
         links.push(link);
         self.links_changed.notify_one();
@@ -139,6 +206,8 @@ impl SlowTcpJunction {
                 match SlowTcpLink::listen(self.local_addr).await {
                     Ok(link) => {
                         // Add the new link to the junction
+                        let link = Arc::new(link);
+                        self.add_link(link.clone());
                         self.clone().start_processing(link);
                     }
                     Err(e) => {
@@ -159,14 +228,15 @@ impl SlowTcpJunction {
     ///
     /// # Arguments
     /// * `link` - The SlowTcpLink to process data from
-    fn start_processing(self: Arc<Self>, link: SlowTcpLink) {
+    fn start_processing(self: Arc<Self>, link: Arc<SlowTcpLink>) {
         // Spawn a tokio background task to handle incoming connections
         task::spawn(async move {
-            let mut buffer = Vec::with_capacity(SlowTcpLink::max_frame_size());
+            let mut buffer = vec![0u8; SlowTcpLink::max_frame_size()];
             loop {
                 match link.receive(&mut buffer).await {
                     Ok(size) => {
-                        let _data = &buffer[..size];
+                        let data = &buffer[..size];
+                        self.process(data);
                     }
                     Err(e) => {
                         eprintln!("SlowTcpJunction: error on receive: {}", e);
@@ -175,5 +245,17 @@ impl SlowTcpJunction {
                 }
             }
         });
+    }
+
+    /// Processes received data from a TCP link.
+    ///
+    /// This function prints the contents of the received data.
+    ///
+    /// # Arguments
+    /// * `data` - The slice of bytes received from the link
+    fn process(&self, data: &[u8]) {
+        // Increment the received package counter
+        self.received_package_count.fetch_add(1, Ordering::Relaxed);
+        println!("Received data: {:?}", data);
     }
 }
