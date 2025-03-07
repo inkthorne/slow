@@ -3,16 +3,23 @@ use super::tcp_listener::SlowTcpListener;
 use super::tcp_stream::SlowTcpStream;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::time::timeout;
 
 const HELLO_MESSAGE: &[u8] = b"SLOW_HELLO";
 const HELLO_RESPONSE: &[u8] = b"SLOW_WELCOME";
 
+// Static counter for assigning unique IDs to each SlowTcpLink
+static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
 /// A TCP-based link for the SLOW protocol that handles connection establishment
 /// and data transfer with length-prefixed framing.
 pub struct SlowTcpLink {
+    /// The underlying TCP stream for this link
     stream: SlowTcpStream,
+    /// Unique identifier for this link instance
+    id: u64,
 }
 
 // ---
@@ -20,6 +27,20 @@ pub struct SlowTcpLink {
 // ---
 
 impl SlowTcpLink {
+    /// Creates a new SlowTcpLink with the given stream.
+    ///
+    /// This function handles assigning a unique ID to the link.
+    ///
+    /// # Arguments
+    /// * `stream` - The TCP stream for this link
+    ///
+    /// # Returns
+    /// A new SlowTcpLink instance
+    fn new(stream: SlowTcpStream) -> Self {
+        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+        Self { stream, id }
+    }
+
     /// Connects to a remote SLOW endpoint and performs a handshake.
     ///
     /// # Arguments
@@ -32,15 +53,13 @@ impl SlowTcpLink {
     /// Returns an error if connection fails or handshake is unsuccessful
     pub async fn connect(addr: SocketAddr) -> io::Result<Self> {
         let stream = SlowTcpStream::connect(addr).await?;
-        let slow_link = Self { stream };
+        let slow_link = Self::new(stream);
         if !slow_link.hello().await {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionRefused,
                 "Hello handshake failed",
             ));
         }
-
-        println!("connect success!");
         Ok(slow_link)
     }
 
@@ -57,15 +76,13 @@ impl SlowTcpLink {
     pub async fn listen(addr: SocketAddr) -> io::Result<Self> {
         let listener = SlowTcpListener::new(addr).await?;
         let stream = listener.accept().await?;
-        let slow_link = Self { stream };
+        let slow_link = Self::new(stream);
         if !slow_link.welcome().await {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionRefused,
                 "Welcome handshake failed",
             ));
         }
-
-        println!("listen success!");
         Ok(slow_link)
     }
 
@@ -83,6 +100,14 @@ impl SlowTcpLink {
 // ---
 
 impl SlowTcpLink {
+    /// Returns the unique identifier of this link
+    ///
+    /// # Returns
+    /// The numeric ID assigned to this link when it was created
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
     /// Sends data over the link with length-prefix framing.
     ///
     /// # Arguments

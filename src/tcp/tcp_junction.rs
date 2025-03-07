@@ -72,10 +72,11 @@ impl SlowTcpJunction {
     ///
     /// # Returns
     /// Result indicating success or failure
-    pub async fn connect(&self, addr: SocketAddr) -> std::io::Result<()> {
+    pub async fn connect(self: Arc<Self>, addr: SocketAddr) -> std::io::Result<()> {
         let link = SlowTcpLink::connect(addr).await?;
         let link = Arc::new(link);
-        self.add_link(link);
+        self.add_link(link.clone());
+        self.start_processing(link);
         Ok(())
     }
 
@@ -118,7 +119,7 @@ impl SlowTcpJunction {
                 }
                 Err(e) => {
                     // Store the error but continue trying other links
-                    eprintln!("Error sending data on link: {}", e);
+                    self.log(&format!("Error sending data on link: {}", e));
                     last_error = Some(e);
                 }
             }
@@ -132,6 +133,42 @@ impl SlowTcpJunction {
             Err(last_error.unwrap_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::Other, "Failed to send data on any link")
             }))
+        }
+    }
+
+    /// Closes all active links in the junction.
+    ///
+    /// This function attempts to gracefully close all the TCP links managed by this junction.
+    /// It returns an error if any of the link closures fail, but attempts to close all links
+    /// regardless of individual failures.
+    ///
+    /// # Returns
+    /// * `std::io::Result<()>` - Ok if all links closed successfully, or the last error encountered
+    pub async fn close(&self) -> std::io::Result<()> {
+        let links_org = self.links.lock().unwrap();
+        let mut links = links_org.clone();
+        drop(links_org);
+        let mut last_error = None;
+
+        // Close all links
+        for link in links.iter() {
+            if let Err(e) = link.close().await {
+                self.log(&format!("Error closing link: {}", e));
+                last_error = Some(e);
+            }
+            self.log("Link closed");
+        }
+
+        // Clear the links collection
+        links.clear();
+
+        // Notify listeners that links have changed (all removed)
+        self.links_changed.notify_one();
+
+        // Return Ok if all links closed successfully, or the last error encountered
+        match last_error {
+            Some(e) => Err(e),
+            None => Ok(()),
         }
     }
 
@@ -184,14 +221,36 @@ impl SlowTcpJunction {
 // ---
 
 impl SlowTcpJunction {
+    /// Logs a message prefixed with the junction ID.
+    ///
+    /// # Arguments
+    /// * `message` - The message to log
+    fn log(&self, message: &str) {
+        println!("[{}]: {}", self.junction_id, message);
+    }
+
     /// Adds a TCP link to the junction.
     ///
     /// # Arguments
     /// * `link` - The SlowTcpLink to add
     fn add_link(&self, link: Arc<SlowTcpLink>) {
         let mut links = self.links.lock().unwrap();
+        self.log(&format!("link {} added to junction", link.id()));
         links.push(link);
         self.links_changed.notify_one();
+    }
+
+    /// Removes a TCP link from the junction.
+    ///
+    /// # Arguments
+    /// * `link_id` - The ID of the SlowTcpLink to remove
+    fn remove_link(&self, link_id: u64) {
+        let mut links = self.links.lock().unwrap();
+        // Find and remove the link with matching ID
+        links.retain(|link| link.id() != link_id);
+        self.links_changed.notify_one();
+        self.log(&format!("link {} removed from junction", link_id));
+        self.log(&format!("Link count: {}", links.len()));
     }
 
     /// Starts listening for incoming connections on the local address.
@@ -211,7 +270,7 @@ impl SlowTcpJunction {
                         self.clone().start_processing(link);
                     }
                     Err(e) => {
-                        eprintln!("SlowTcpJunction: error accepting connection: {}", e);
+                        self.log(&format!("Error accepting connection: {}", e));
                         // Small delay to avoid tight loop on persistent errors
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
@@ -233,17 +292,26 @@ impl SlowTcpJunction {
         task::spawn(async move {
             let mut buffer = vec![0u8; SlowTcpLink::max_frame_size()];
             loop {
+                self.log(&format!("Waiting to receive data from link {}", link.id()));
                 match link.receive(&mut buffer).await {
                     Ok(size) => {
+                        self.log(&format!("Received {} bytes from link", size));
+                        if size == 0 {
+                            self.remove_link(link.id());
+                            break;
+                        }
                         let data = &buffer[..size];
                         self.process(data);
                     }
-                    Err(e) => {
-                        eprintln!("SlowTcpJunction: error on receive: {}", e);
+                    Err(_) => {
+                        self.log("Error receiving data from link");
                         break;
                     }
                 }
             }
+
+            self.remove_link(link.id());
+            self.log("Link processing task finished");
         });
     }
 
@@ -256,6 +324,6 @@ impl SlowTcpJunction {
     fn process(&self, data: &[u8]) {
         // Increment the received package counter
         self.received_package_count.fetch_add(1, Ordering::Relaxed);
-        println!("Received data: {:?}", data);
+        self.log(&format!("Received data: {:?}", data));
     }
 }

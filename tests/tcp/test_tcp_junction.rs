@@ -23,6 +23,7 @@ async fn test_tcp_junction() {
 
     // Connect junction2 to junction1
     junction2
+        .clone()
         .connect(addr1)
         .await
         .expect("Failed to connect junction2 to junction1");
@@ -65,5 +66,19 @@ async fn test_tcp_junction() {
         junction2.received_package_count(),
         0,
         "Junction2 should have received 0 packages"
+    );
+
+    // Close junction1
+    junction1.close().await.expect("Failed to close junction1");
+    // drop(junction1);
+
+    // Allow some time for the connection to be terminated and links to be removed
+    time::sleep(Duration::from_millis(1300)).await;
+
+    // Verify that junction2 now has 0 links since junction1 was closed
+    assert_eq!(
+        junction2.link_count(),
+        0,
+        "Junction2 should have 0 links after junction1 was closed"
     );
 }

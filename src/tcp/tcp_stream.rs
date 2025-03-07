@@ -3,7 +3,9 @@ use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::select;
 use tokio::sync::Mutex;
+use tokio::sync::Notify;
 
 /// Represents a TCP stream in the slow network stack
 ///
@@ -15,6 +17,8 @@ pub struct SlowTcpStream {
     reader: Mutex<OwnedReadHalf>,
     /// The write half of the underlying Tokio TCP stream
     writer: Mutex<OwnedWriteHalf>,
+    /// Used to notify the read() functions to return EOF
+    close_notify: Notify,
 }
 
 impl SlowTcpStream {
@@ -44,6 +48,7 @@ impl SlowTcpStream {
         SlowTcpStream {
             reader: Mutex::new(reader),
             writer: Mutex::new(writer),
+            close_notify: Notify::new(),
         }
     }
 
@@ -77,7 +82,14 @@ impl SlowTcpStream {
     /// * `io::Result<usize>` - The number of bytes read or an IO error
     pub async fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
         let mut reader = self.reader.lock().await;
-        reader.read(buf).await
+        select! {
+            result = reader.read(buf) => {
+                result
+            }
+            _ = self.close_notify.notified() => {
+                Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Connection closed"))
+            }
+        }
     }
 
     /// Reads exactly enough bytes to fill the buffer
@@ -93,8 +105,14 @@ impl SlowTcpStream {
     /// * `io::Result<usize>` - The number of bytes read or an IO error
     pub async fn read_exact(&self, buf: &mut [u8]) -> io::Result<usize> {
         let mut reader = self.reader.lock().await;
-        reader.read_exact(buf).await?;
-        Ok(buf.len())
+        select! {
+            result = reader.read_exact(buf) => {
+                result
+            }
+            _ = self.close_notify.notified() => {
+                Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Connection closed"))
+            }
+        }
     }
 
     /// Closes the TCP connection
@@ -105,15 +123,14 @@ impl SlowTcpStream {
     /// # Returns
     /// * `io::Result<()>` - Ok if the shutdown was successful, or an IO error
     pub async fn close(&self) -> io::Result<()> {
-        // Acquire locks for both reader and writer
+        self.close_notify.notify_waiters();
+
+        // Acquire locks for both reader & writer
         let _reader = self.reader.lock().await;
         let mut writer = self.writer.lock().await;
 
         // Shutdown the write half first (sends FIN packet)
         writer.shutdown().await?;
-
-        // We don't explicitly close the reader half since there's no direct shutdown method,
-        // but once the writer is shut down, no more data can be sent in either
         Ok(())
     }
 }
