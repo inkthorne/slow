@@ -111,6 +111,17 @@ impl SlowTcpLink {
     pub async fn receive(&self, buffer: &mut [u8]) -> io::Result<usize> {
         SlowTcpFrame::receive(buffer, &self.stream).await
     }
+
+    /// Closes the TCP connection.
+    ///
+    /// This method will shut down the underlying TCP stream,
+    /// preventing further communication on this link.
+    ///
+    /// # Returns
+    /// * `io::Result<()>` - Ok if the shutdown was successful, or an IO error
+    pub async fn close(&self) -> io::Result<()> {
+        self.stream.close().await
+    }
 }
 
 // ---

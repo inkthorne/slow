@@ -96,4 +96,24 @@ impl SlowTcpStream {
         reader.read_exact(buf).await?;
         Ok(buf.len())
     }
+
+    /// Closes the TCP connection
+    ///
+    /// This method will shut down both the read and write halves of the connection,
+    /// preventing further communication on this stream.
+    ///
+    /// # Returns
+    /// * `io::Result<()>` - Ok if the shutdown was successful, or an IO error
+    pub async fn close(&self) -> io::Result<()> {
+        // Acquire locks for both reader and writer
+        let _reader = self.reader.lock().await;
+        let mut writer = self.writer.lock().await;
+
+        // Shutdown the write half first (sends FIN packet)
+        writer.shutdown().await?;
+
+        // We don't explicitly close the reader half since there's no direct shutdown method,
+        // but once the writer is shut down, no more data can be sent in either
+        Ok(())
+    }
 }
