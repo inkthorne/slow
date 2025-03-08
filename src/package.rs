@@ -1,5 +1,4 @@
 use crate::junction::JunctionId;
-use bincode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -250,23 +249,93 @@ impl SlowPackage {
     ///
     /// * `Option<Self>` - An optional `SlowPackage` instance.
     ///
-    /// This function deserializes the header using `bincode` and checks the payload size.
+    /// This function deserializes the header fields from bytes and checks the payload size.
     pub fn unpackage(data: &[u8]) -> Option<Self> {
-        let mut cursor = std::io::Cursor::new(data);
-        let header: SlowPackageHeader = bincode::deserialize_from(&mut cursor).ok()?;
-        let header_size = cursor.position() as usize;
-        let payload = &data[header_size..];
-
-        if header.payload_size as usize == payload.len() {
-            let package = SlowPackage {
-                header,
-                payload: payload.to_vec(),
-            };
-
-            return Some(package);
+        // Check if we have enough data for at least the fixed-size header fields
+        if data.len() < 8 {
+            return None;
         }
 
-        None
+        let mut pos = 0;
+
+        // Read package_type (u8)
+        let package_type = data[pos];
+        pos += 1;
+
+        // Read recipient_id using JunctionId's unpack() function
+        let recipient_id_data_len = data.len() - pos;
+        if recipient_id_data_len < 2 {
+            // At minimum we need 2 bytes for length
+            return None;
+        }
+
+        let recipient_id = match JunctionId::unpack(&data[pos..]) {
+            Some(id) => id,
+            None => return None,
+        };
+
+        // Move position past the recipient_id bytes
+        // Format: 2 bytes for length + N bytes for id string
+        let recipient_id_len = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
+        pos += 2 + recipient_id_len;
+
+        // Read sender_id using JunctionId's unpack() function
+        let sender_id_data_len = data.len() - pos;
+        if sender_id_data_len < 2 {
+            // At minimum we need 2 bytes for length
+            return None;
+        }
+
+        let sender_id = match JunctionId::unpack(&data[pos..]) {
+            Some(id) => id,
+            None => return None,
+        };
+
+        // Move position past the sender_id bytes
+        let sender_id_len = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
+        pos += 2 + sender_id_len;
+
+        // Read hop_count (u8)
+        if pos >= data.len() {
+            return None;
+        }
+        let hop_count = data[pos];
+        pos += 1;
+
+        // Read package_id (u32)
+        if pos + 4 > data.len() {
+            return None;
+        }
+        let package_id =
+            u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+
+        // Read payload_size (u16)
+        if pos + 2 > data.len() {
+            return None;
+        }
+        let payload_size = u16::from_le_bytes([data[pos], data[pos + 1]]);
+        pos += 2;
+
+        // Check if the remaining bytes match the payload size
+        if pos + (payload_size as usize) != data.len() {
+            return None;
+        }
+
+        // Read payload
+        let payload = data[pos..].to_vec();
+
+        // Create and return the SlowPackage
+        let header = SlowPackageHeader {
+            package_type,
+            recipient_id,
+            sender_id,
+            hop_count,
+            package_id,
+            payload_size,
+        };
+
+        Some(SlowPackage { header, payload })
     }
 
     /// Packages the `SlowPackage` into a byte vector.
@@ -276,8 +345,30 @@ impl SlowPackage {
     /// * `Vec<u8>` - A byte vector containing the packaged package.
     pub fn package(&self) -> Vec<u8> {
         let mut package = Vec::new();
-        bincode::serialize_into(&mut package, &self.header).unwrap();
+
+        // Write package_type (u8)
+        package.push(self.header.package_type);
+
+        // Use JunctionId's pack() function for recipient_id
+        let recipient_id_bytes = self.header.recipient_id.pack();
+        package.extend_from_slice(&recipient_id_bytes);
+
+        // Use JunctionId's pack() function for sender_id
+        let sender_id_bytes = self.header.sender_id.pack();
+        package.extend_from_slice(&sender_id_bytes);
+
+        // Write hop_count (u8)
+        package.push(self.header.hop_count);
+
+        // Write package_id (u32)
+        package.extend_from_slice(&self.header.package_id.to_le_bytes());
+
+        // Write payload_size (u16)
+        package.extend_from_slice(&self.header.payload_size.to_le_bytes());
+
+        // Write payload
         package.extend_from_slice(&self.payload);
+
         package
     }
 

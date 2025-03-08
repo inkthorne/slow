@@ -1,6 +1,7 @@
 use crate::junction::JunctionId;
+use crate::package::SlowPackage;
 use crate::tcp::tcp_link::SlowTcpLink;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,6 +30,9 @@ pub struct SlowTcpJunction {
 
     /// Counter for the number of packages received
     received_package_count: AtomicUsize,
+
+    /// Queue of received packages meant for this junction
+    received_packages: Mutex<VecDeque<SlowPackage>>,
 }
 
 // ---
@@ -52,6 +56,7 @@ impl SlowTcpJunction {
             junction_id,
             junction_map: Arc::new(Mutex::new(HashMap::new())),
             received_package_count: AtomicUsize::new(0),
+            received_packages: Mutex::new(VecDeque::new()),
         };
 
         let junction = Arc::new(junction);
@@ -214,6 +219,24 @@ impl SlowTcpJunction {
         let map = self.junction_map.lock().unwrap();
         map.get(junction_id).copied()
     }
+
+    /// Retrieves the next package from the received packages queue.
+    ///
+    /// # Returns
+    /// Option containing a package, or None if queue is empty
+    pub fn receive_package(&self) -> Option<SlowPackage> {
+        let mut packages = self.received_packages.lock().unwrap();
+        packages.pop_front()
+    }
+
+    /// Returns the number of packages waiting in the received queue.
+    ///
+    /// # Returns
+    /// The count of packages in the received queue
+    pub fn waiting_package_count(&self) -> usize {
+        let packages = self.received_packages.lock().unwrap();
+        packages.len()
+    }
 }
 
 // ---
@@ -317,13 +340,34 @@ impl SlowTcpJunction {
 
     /// Processes received data from a TCP link.
     ///
-    /// This function prints the contents of the received data.
+    /// This function unpacks the received data into a SlowPackage and checks if it's intended
+    /// for this junction. If it is, the package is stored in a Deque for later processing.
     ///
     /// # Arguments
     /// * `data` - The slice of bytes received from the link
     fn process(&self, data: &[u8]) {
         // Increment the received package counter
         self.received_package_count.fetch_add(1, Ordering::Relaxed);
-        self.log(&format!("Received data: {:?}", data));
+
+        // Try to unpack the data into a SlowPackage
+        if let Some(package) = SlowPackage::unpackage(data) {
+            self.log(&format!(
+                "Received package from {} for {}",
+                package.sender_id(),
+                package.recipient_id()
+            ));
+
+            // Check if the package is intended for this junction
+            if *package.recipient_id() == self.junction_id {
+                // Lock the deque and add the package
+                let mut received_packages = self.received_packages.lock().unwrap();
+                self.log("Package is for this junction, saving to queue");
+                received_packages.push_back(package);
+            } else {
+                self.log("Package is not for this junction, ignoring");
+            }
+        } else {
+            self.log(&format!("Failed to unpack received data: {:?}", data));
+        }
     }
 }

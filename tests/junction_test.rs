@@ -249,3 +249,46 @@ async fn test_junction_ping() {
     // Assert the pong count of junction1 is 1
     assert_eq!(junction1.get_pong_counter().await, 1);
 }
+
+#[test]
+fn test_junction_id_serialization() {
+    // Create a JunctionId
+    let original_id = JunctionId::new("test-junction-123");
+
+    // Pack it into bytes
+    let packed = original_id.pack();
+
+    // Unpack bytes back to JunctionId
+    let unpacked_id = JunctionId::unpack(&packed).expect("Failed to unpack JunctionId");
+
+    // Verify the unpacked ID matches the original
+    assert_eq!(unpacked_id, original_id);
+
+    // Test with a different ID
+    let another_id = JunctionId::new("another-junction-456");
+    let another_packed = another_id.pack();
+    let another_unpacked =
+        JunctionId::unpack(&another_packed).expect("Failed to unpack JunctionId");
+    assert_eq!(another_unpacked, another_id);
+
+    // Test that they don't equal each other
+    assert_ne!(original_id, another_id);
+
+    // Test error cases
+    assert!(
+        JunctionId::unpack(&[]).is_none(),
+        "Should return None for empty data"
+    );
+    assert!(
+        JunctionId::unpack(&[5, 0]).is_none(),
+        "Should return None for insufficient data"
+    );
+
+    // Test with invalid UTF-8
+    let mut invalid_utf8 = vec![3, 0]; // length 3
+    invalid_utf8.extend_from_slice(&[0xFF, 0xFF, 0xFF]); // Invalid UTF-8 bytes
+    assert!(
+        JunctionId::unpack(&invalid_utf8).is_none(),
+        "Should return None for invalid UTF-8"
+    );
+}
