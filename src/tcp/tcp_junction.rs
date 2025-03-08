@@ -85,60 +85,22 @@ impl SlowTcpJunction {
         Ok(())
     }
 
-    /// Sends data to all connected links.
+    /// Sends a SlowPackage to connected links.
     ///
-    /// This function broadcasts the provided data to all active links managed by this junction.
+    /// This function serializes the provided SlowPackage and sends it to the
+    /// appropriate link(s) based on the destination junction ID.
     ///
     /// # Arguments
-    /// * `data` - The byte slice to send
-    /// * `target_junction_id` - The ID of the destination junction (for routing purposes)
+    /// * `package` - The SlowPackage to send
     ///
     /// # Returns
     /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
-    pub async fn send(
-        &self,
-        data: &[u8],
-        _target_junction_id: &JunctionId,
-    ) -> std::io::Result<usize> {
-        // Get a reference to all active links
-        let links = self.links.lock().unwrap();
+    pub async fn send_package(&self, package: &SlowPackage) -> std::io::Result<usize> {
+        // Serialize the package to bytes
+        let data = package.package();
 
-        if links.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "No active links available for sending data",
-            ));
-        }
-
-        let mut last_error = None;
-        let mut bytes_sent = 0;
-
-        // Send the data to all links
-        for link in links.iter() {
-            match link.send(data).await {
-                Ok(sent) => {
-                    // Return the number of bytes sent on the first successful transmission
-                    if bytes_sent == 0 {
-                        bytes_sent = sent;
-                    }
-                }
-                Err(e) => {
-                    // Store the error but continue trying other links
-                    self.log(&format!("Error sending data on link: {}", e));
-                    last_error = Some(e);
-                }
-            }
-        }
-
-        // If we sent data on at least one link, consider it a success
-        if bytes_sent > 0 {
-            Ok(bytes_sent)
-        } else {
-            // If all links failed, return the last error
-            Err(last_error.unwrap_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::Other, "Failed to send data on any link")
-            }))
-        }
+        // Use the existing send method to send the data
+        self.send(&data, package.recipient_id()).await
     }
 
     /// Closes all active links in the junction.
@@ -276,6 +238,58 @@ impl SlowTcpJunction {
         self.log(&format!("Link count: {}", links.len()));
     }
 
+    /// Sends data to all connected links.
+    ///
+    /// This function broadcasts the provided data to all active links managed by this junction.
+    ///
+    /// # Arguments
+    /// * `data` - The byte slice to send
+    /// * `target_junction_id` - The ID of the destination junction (for routing purposes)
+    ///
+    /// # Returns
+    /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
+    async fn send(&self, data: &[u8], _target_junction_id: &JunctionId) -> std::io::Result<usize> {
+        // Get a reference to all active links
+        let links = self.links.lock().unwrap();
+
+        if links.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "No active links available for sending data",
+            ));
+        }
+
+        let mut last_error = None;
+        let mut bytes_sent = 0;
+
+        // Send the data to all links
+        for link in links.iter() {
+            match link.send(data).await {
+                Ok(sent) => {
+                    // Return the number of bytes sent on the first successful transmission
+                    if bytes_sent == 0 {
+                        bytes_sent = sent;
+                    }
+                }
+                Err(e) => {
+                    // Store the error but continue trying other links
+                    self.log(&format!("Error sending data on link: {}", e));
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        // If we sent data on at least one link, consider it a success
+        if bytes_sent > 0 {
+            Ok(bytes_sent)
+        } else {
+            // If all links failed, return the last error
+            Err(last_error.unwrap_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::Other, "Failed to send data on any link")
+            }))
+        }
+    }
+
     /// Starts listening for incoming connections on the local address.
     ///
     /// This method spawns a background task that continuously listens for
@@ -346,11 +360,11 @@ impl SlowTcpJunction {
     /// # Arguments
     /// * `data` - The slice of bytes received from the link
     fn process(&self, data: &[u8]) {
-        // Increment the received package counter
-        self.received_package_count.fetch_add(1, Ordering::Relaxed);
-
         // Try to unpack the data into a SlowPackage
         if let Some(package) = SlowPackage::unpackage(data) {
+            // Increment the received package counter
+            self.received_package_count.fetch_add(1, Ordering::Relaxed);
+
             self.log(&format!(
                 "Received package from {} for {}",
                 package.sender_id(),

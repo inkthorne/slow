@@ -1,4 +1,5 @@
 use slow::junction::JunctionId;
+use slow::package::SlowPackage;
 use slow::tcp::tcp_junction::SlowTcpJunction;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
@@ -39,18 +40,20 @@ async fn test_tcp_junction() {
     assert_eq!(junction2.link_count(), 1, "Junction2 should have 1 link");
 
     // Create test data to send from junction2 to junction1
-    let test_data = b"Hello from junction2 to junction1";
+    let test_message = b"Hello from junction2 to junction1";
+    let test_data =
+        SlowPackage::new_bin_payload(junction_id1.clone(), junction_id2.clone(), test_message);
 
-    // Send data from junction2 to junction1
+    // Send the package from junction2 to junction1
     let bytes_sent = junction2
-        .send(test_data, &junction_id1)
+        .send_package(&test_data)
         .await
-        .expect("Failed to send data from junction2 to junction1");
+        .expect("Failed to send package from junction2 to junction1");
 
     assert_eq!(
         bytes_sent,
-        test_data.len(),
-        "Bytes sent should match test data length"
+        test_data.package().len(),
+        "Bytes sent should match packaged data length"
     );
 
     // Allow some time for the data to be processed
