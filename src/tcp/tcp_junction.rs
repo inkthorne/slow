@@ -1,6 +1,8 @@
 use crate::junction::JunctionId;
 use crate::package::SlowPackage;
+use crate::package_tracker::SlowPackageTracker;
 use crate::tcp::tcp_link::SlowTcpLink;
+use crate::tracker::UpdateResult;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -31,8 +33,14 @@ pub struct SlowTcpJunction {
     /// Counter for the number of packages received
     received_package_count: AtomicUsize,
 
+    /// Counter for the number of packages sent
+    sent_package_count: AtomicUsize,
+
     /// Queue of received packages meant for this junction
     received_packages: Mutex<VecDeque<SlowPackage>>,
+
+    /// Tracks packages to detect duplicates and old packages
+    package_tracker: Mutex<SlowPackageTracker>,
 }
 
 // ---
@@ -56,7 +64,9 @@ impl SlowTcpJunction {
             junction_id,
             junction_map: Arc::new(Mutex::new(HashMap::new())),
             received_package_count: AtomicUsize::new(0),
+            sent_package_count: AtomicUsize::new(0),
             received_packages: Mutex::new(VecDeque::new()),
+            package_tracker: Mutex::new(SlowPackageTracker::new()),
         };
 
         let junction = Arc::new(junction);
@@ -96,11 +106,21 @@ impl SlowTcpJunction {
     /// # Returns
     /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
     pub async fn send_package(&self, package: &SlowPackage) -> std::io::Result<usize> {
+        // Set the package ID to the current sent count before packaging
+        let package_id = self.sent_package_count.load(Ordering::Relaxed) as u32 + 1;
+
         // Serialize the package to bytes
-        let data = package.package();
+        let data = package.pack(package_id);
 
         // Use the existing send method to send the data
-        self.send(&data, package.recipient_id()).await
+        let result = self.send(&data, package.recipient_id()).await;
+
+        // If send was successful, increment the sent package counter
+        if result.is_ok() {
+            self.sent_package_count.fetch_add(1, Ordering::Relaxed);
+        }
+
+        result
     }
 
     /// Closes all active links in the junction.
@@ -158,6 +178,11 @@ impl SlowTcpJunction {
     /// Returns the count of packages that have been received.
     pub fn received_package_count(&self) -> usize {
         self.received_package_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the count of packages that have been sent.
+    pub fn sent_package_count(&self) -> usize {
+        self.sent_package_count.load(Ordering::Relaxed)
     }
 
     /// Associates a junction ID with a socket address.
@@ -361,27 +386,48 @@ impl SlowTcpJunction {
     /// * `data` - The slice of bytes received from the link
     fn process(&self, data: &[u8]) {
         // Try to unpack the data into a SlowPackage
-        if let Some(package) = SlowPackage::unpackage(data) {
-            // Increment the received package counter
-            self.received_package_count.fetch_add(1, Ordering::Relaxed);
-
-            self.log(&format!(
-                "Received package from {} for {}",
-                package.sender_id(),
-                package.recipient_id()
-            ));
-
-            // Check if the package is intended for this junction
-            if *package.recipient_id() == self.junction_id {
-                // Lock the deque and add the package
-                let mut received_packages = self.received_packages.lock().unwrap();
-                self.log("Package is for this junction, saving to queue");
-                received_packages.push_back(package);
-            } else {
-                self.log("Package is not for this junction, ignoring");
+        let package = match SlowPackage::unpack(data) {
+            Some(package) => package,
+            None => {
+                self.log(&format!("Failed to unpack received data: {:?}", data));
+                return;
             }
+        };
+
+        // Check the package against the tracker
+        let mut tracker = self.package_tracker.lock().unwrap();
+        match tracker.update(&package) {
+            UpdateResult::Duplicate => {
+                self.log("Received duplicate package, discarding");
+                return;
+            }
+            UpdateResult::Old => {
+                self.log("Received old package, discarding");
+                return;
+            }
+            UpdateResult::Success => {
+                // Package is new and valid, continue processing
+                self.log(&format!(
+                    "Received new package {} from {} for {}",
+                    package.package_id(),
+                    package.sender_id(),
+                    package.recipient_id()
+                ));
+            }
+        }
+        drop(tracker);
+
+        // Increment the received package counter
+        self.received_package_count.fetch_add(1, Ordering::Relaxed);
+
+        // Check if the package is intended for this junction
+        if *package.recipient_id() == self.junction_id {
+            // Lock the deque and add the package
+            let mut received_packages = self.received_packages.lock().unwrap();
+            self.log("Package is for this junction, saving to queue");
+            received_packages.push_back(package);
         } else {
-            self.log(&format!("Failed to unpack received data: {:?}", data));
+            self.log("Package is not for this junction, ignoring");
         }
     }
 }

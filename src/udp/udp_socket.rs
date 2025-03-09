@@ -52,7 +52,7 @@ impl SlowUdpSocket {
         package: &SlowPackage,
         recipient_addr: &SocketAddr,
     ) -> std::io::Result<()> {
-        let packaged_data = package.package();
+        let packaged_data = package.pack(package.package_id());
         self.send(&packaged_data, recipient_addr).await?;
         Ok(())
     }
@@ -99,7 +99,7 @@ impl SlowUdpSocket {
             // Extract the package from the raw data
             // Note: No need to increment the counter since receive() already does that
             let stuff = buf[..size].to_vec();
-            SlowPackage::unpackage(&stuff).map(|package| (package, src))
+            SlowPackage::unpack(&stuff).map(|package| (package, src))
         } else {
             None
         }

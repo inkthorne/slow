@@ -32,9 +32,9 @@ fn test_packae_new_bin_payload() {
     assert_eq!(package.payload, binary_data);
 
     // Test serialization/deserialization of binary payload package
-    let serialized = package.package();
+    let serialized = package.pack(package.package_id());
     let deserialized =
-        SlowPackage::unpackage(&serialized).expect("Failed to deserialize binary package");
+        SlowPackage::unpack(&serialized).expect("Failed to deserialize binary package");
 
     // Verify the deserialized package matches the original
     assert_eq!(deserialized.package_type().unwrap(), PackageType::Bin);
@@ -58,9 +58,9 @@ fn test_package_ping_pong() {
     assert!(ping.payload.is_empty());
 
     // Test serialization/deserialization of ping package
-    let serialized_ping = ping.package();
+    let serialized_ping = ping.pack(ping.package_id());
     let deserialized_ping =
-        SlowPackage::unpackage(&serialized_ping).expect("Failed to deserialize ping package");
+        SlowPackage::unpack(&serialized_ping).expect("Failed to deserialize ping package");
     assert_eq!(deserialized_ping.package_type().unwrap(), PackageType::Ping);
     assert_eq!(deserialized_ping.recipient_id(), &recipient);
     assert_eq!(deserialized_ping.sender_id(), &sender);
@@ -76,9 +76,9 @@ fn test_package_ping_pong() {
     assert!(pong.payload.is_empty());
 
     // Test serialization/deserialization of pong package
-    let serialized_pong = pong.package();
+    let serialized_pong = pong.pack(pong.package_id());
     let deserialized_pong =
-        SlowPackage::unpackage(&serialized_pong).expect("Failed to deserialize pong package");
+        SlowPackage::unpack(&serialized_pong).expect("Failed to deserialize pong package");
     assert_eq!(deserialized_pong.package_type().unwrap(), PackageType::Pong);
     assert_eq!(deserialized_pong.recipient_id(), &recipient);
     assert_eq!(deserialized_pong.sender_id(), &sender);
@@ -109,10 +109,10 @@ fn test_package_serialization_deserialization() {
     let original = SlowPackage::new_json_payload(recipient.clone(), sender.clone(), &payload);
 
     // Serialize
-    let serialized = original.package();
+    let serialized = original.pack(original.package_id());
 
     // Deserialize
-    let deserialized = SlowPackage::unpackage(&serialized).expect("Failed to deserialize package");
+    let deserialized = SlowPackage::unpack(&serialized).expect("Failed to deserialize package");
 
     // Verify
     assert_eq!(deserialized.package_type().unwrap(), PackageType::Json);
@@ -159,12 +159,12 @@ fn test_package_invalid() {
     let sender = JunctionId::new("sender");
     let original = SlowPackage::new_ping(recipient, sender);
 
-    let mut serialized = original.package();
+    let mut serialized = original.pack(original.package_id());
     // Corrupt the data by truncating it
     serialized.truncate(serialized.len() - 5);
 
     // Attempt to deserialize
-    let result = SlowPackage::unpackage(&serialized);
+    let result = SlowPackage::unpack(&serialized);
     assert!(result.is_none(), "Should return None for invalid data");
 }
 

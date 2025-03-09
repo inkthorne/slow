@@ -41,18 +41,18 @@ async fn test_tcp_junction() {
 
     // Create test data to send from junction2 to junction1
     let test_message = b"Hello from junction2 to junction1";
-    let test_data =
+    let test_package =
         SlowPackage::new_bin_payload(junction_id1.clone(), junction_id2.clone(), test_message);
 
     // Send the package from junction2 to junction1
     let bytes_sent = junction2
-        .send_package(&test_data)
+        .send_package(&test_package)
         .await
         .expect("Failed to send package from junction2 to junction1");
 
     assert_eq!(
         bytes_sent,
-        test_data.package().len(),
+        test_package.pack(0).len(),
         "Bytes sent should match packaged data length"
     );
 

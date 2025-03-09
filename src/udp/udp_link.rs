@@ -77,7 +77,7 @@ impl SlowUdpLink {
         self.packed_count += 1;
 
         let packet_id = self.packed_count;
-        let data = package.package();
+        let data = package.pack(package.package_id());
         let payload_packet = SlowLinkPayloadPacket::new(packet_id, data);
         let packed = payload_packet.pack();
 

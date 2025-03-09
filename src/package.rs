@@ -250,7 +250,7 @@ impl SlowPackage {
     /// * `Option<Self>` - An optional `SlowPackage` instance.
     ///
     /// This function deserializes the header fields from bytes and checks the payload size.
-    pub fn unpackage(data: &[u8]) -> Option<Self> {
+    pub fn unpack(data: &[u8]) -> Option<Self> {
         // Check if we have enough data for at least the fixed-size header fields
         if data.len() < 8 {
             return None;
@@ -343,7 +343,7 @@ impl SlowPackage {
     /// # Returns
     ///
     /// * `Vec<u8>` - A byte vector containing the packaged package.
-    pub fn package(&self) -> Vec<u8> {
+    pub fn pack(&self, package_id: u32) -> Vec<u8> {
         let mut package = Vec::new();
 
         // Write package_type (u8)
@@ -361,7 +361,7 @@ impl SlowPackage {
         package.push(self.header.hop_count);
 
         // Write package_id (u32)
-        package.extend_from_slice(&self.header.package_id.to_le_bytes());
+        package.extend_from_slice(&package_id.to_le_bytes());
 
         // Write payload_size (u16)
         package.extend_from_slice(&self.header.payload_size.to_le_bytes());

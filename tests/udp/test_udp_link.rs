@@ -37,7 +37,7 @@ async fn test_slow_udp_link() {
     match packet {
         SlowLinkPacket::Payload(payload_packet) => {
             assert_eq!(payload_packet.packet_id, 1);
-            assert_eq!(payload_packet.payload, package.package());
+            assert_eq!(payload_packet.payload, package.pack(0));
         }
         _ => panic!("Unexpected packet type"),
     }
