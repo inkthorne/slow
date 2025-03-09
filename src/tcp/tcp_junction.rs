@@ -5,9 +5,9 @@ use crate::tcp::tcp_link::SlowTcpLink;
 use crate::tracker::UpdateResult;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use tokio::sync::Notify;
+use tokio::sync::{Mutex, Notify};
 use tokio::task;
 
 /// A TCP-based junction that manages multiple TCP links.
@@ -35,6 +35,9 @@ pub struct SlowTcpJunction {
 
     /// Counter for the number of packages sent
     sent_package_count: AtomicUsize,
+
+    /// Counter for the number of packages rejected (failed to unpack, duplicate, or old)
+    rejected_package_count: AtomicUsize,
 
     /// Queue of received packages meant for this junction
     received_packages: Mutex<VecDeque<SlowPackage>>,
@@ -65,6 +68,7 @@ impl SlowTcpJunction {
             junction_map: Arc::new(Mutex::new(HashMap::new())),
             received_package_count: AtomicUsize::new(0),
             sent_package_count: AtomicUsize::new(0),
+            rejected_package_count: AtomicUsize::new(0),
             received_packages: Mutex::new(VecDeque::new()),
             package_tracker: Mutex::new(SlowPackageTracker::new()),
         };
@@ -90,7 +94,7 @@ impl SlowTcpJunction {
     pub async fn connect(self: Arc<Self>, addr: SocketAddr) -> std::io::Result<()> {
         let link = SlowTcpLink::connect(addr).await?;
         let link = Arc::new(link);
-        self.add_link(link.clone());
+        self.add_link(link.clone()).await;
         self.start_processing(link);
         Ok(())
     }
@@ -113,7 +117,7 @@ impl SlowTcpJunction {
         let data = package.pack(package_id);
 
         // Use the existing send method to send the data
-        let result = self.send(&data).await;
+        let result = self.broadcast(&data, None).await;
 
         // If send was successful, increment the sent package counter
         if result.is_ok() {
@@ -132,7 +136,7 @@ impl SlowTcpJunction {
     /// # Returns
     /// * `std::io::Result<()>` - Ok if all links closed successfully, or the last error encountered
     pub async fn close(&self) -> std::io::Result<()> {
-        let links_org = self.links.lock().unwrap();
+        let links_org = self.links.lock().await;
         let mut links = links_org.clone();
         drop(links_org);
         let mut last_error = None;
@@ -160,8 +164,8 @@ impl SlowTcpJunction {
     }
 
     /// Returns the number of active links in this junction.
-    pub fn link_count(&self) -> usize {
-        let links = self.links.lock().unwrap();
+    pub async fn link_count(&self) -> usize {
+        let links = self.links.lock().await;
         links.len()
     }
 
@@ -185,13 +189,18 @@ impl SlowTcpJunction {
         self.sent_package_count.load(Ordering::Relaxed)
     }
 
+    /// Returns the count of packages that have been rejected.
+    pub fn rejected_package_count(&self) -> usize {
+        self.rejected_package_count.load(Ordering::Relaxed)
+    }
+
     /// Associates a junction ID with a socket address.
     ///
     /// # Arguments
     /// * `junction_id` - The junction ID to map
     /// * `addr` - The socket address to associate with the ID
-    pub fn register_junction(&self, junction_id: JunctionId, addr: SocketAddr) {
-        let mut map = self.junction_map.lock().unwrap();
+    pub async fn register_junction(&self, junction_id: JunctionId, addr: SocketAddr) {
+        let mut map = self.junction_map.lock().await;
         map.insert(junction_id, addr);
     }
 
@@ -202,8 +211,8 @@ impl SlowTcpJunction {
     ///
     /// # Returns
     /// Option containing the socket address, or None if not found
-    pub fn get_junction_addr(&self, junction_id: &JunctionId) -> Option<SocketAddr> {
-        let map = self.junction_map.lock().unwrap();
+    pub async fn get_junction_addr(&self, junction_id: &JunctionId) -> Option<SocketAddr> {
+        let map = self.junction_map.lock().await;
         map.get(junction_id).copied()
     }
 
@@ -211,8 +220,8 @@ impl SlowTcpJunction {
     ///
     /// # Returns
     /// Option containing a package, or None if queue is empty
-    pub fn receive_package(&self) -> Option<SlowPackage> {
-        let mut packages = self.received_packages.lock().unwrap();
+    pub async fn receive_package(&self) -> Option<SlowPackage> {
+        let mut packages = self.received_packages.lock().await;
         packages.pop_front()
     }
 
@@ -220,8 +229,8 @@ impl SlowTcpJunction {
     ///
     /// # Returns
     /// The count of packages in the received queue
-    pub fn waiting_package_count(&self) -> usize {
-        let packages = self.received_packages.lock().unwrap();
+    pub async fn waiting_package_count(&self) -> usize {
+        let packages = self.received_packages.lock().await;
         packages.len()
     }
 }
@@ -243,8 +252,8 @@ impl SlowTcpJunction {
     ///
     /// # Arguments
     /// * `link` - The SlowTcpLink to add
-    fn add_link(&self, link: Arc<SlowTcpLink>) {
-        let mut links = self.links.lock().unwrap();
+    async fn add_link(&self, link: Arc<SlowTcpLink>) {
+        let mut links = self.links.lock().await;
         self.log(&format!("link {} added to junction", link.id()));
         links.push(link);
         self.links_changed.notify_one();
@@ -254,8 +263,8 @@ impl SlowTcpJunction {
     ///
     /// # Arguments
     /// * `link_id` - The ID of the SlowTcpLink to remove
-    fn remove_link(&self, link_id: u64) {
-        let mut links = self.links.lock().unwrap();
+    async fn remove_link(&self, link_id: u64) {
+        let mut links = self.links.lock().await;
         // Find and remove the link with matching ID
         links.retain(|link| link.id() != link_id);
         self.links_changed.notify_one();
@@ -263,18 +272,20 @@ impl SlowTcpJunction {
         self.log(&format!("Link count: {}", links.len()));
     }
 
-    /// Sends data to all connected links.
+    /// Sends data to all connected links except the one specified by exclude_link_id.
     ///
-    /// This function broadcasts the provided data to all active links managed by this junction.
+    /// This function broadcasts the provided data to all active links managed by this junction,
+    /// excluding the link specified by exclude_link_id if provided.
     ///
     /// # Arguments
     /// * `data` - The byte slice to send
+    /// * `exclude_link_id` - Optional link ID to exclude from broadcasting
     ///
     /// # Returns
     /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
-    async fn send(&self, data: &[u8]) -> std::io::Result<usize> {
+    async fn broadcast(&self, data: &[u8], exclude_link_id: Option<u64>) -> std::io::Result<usize> {
         // Get a reference to all active links
-        let links = self.links.lock().unwrap();
+        let links = self.links.lock().await;
 
         if links.is_empty() {
             return Err(std::io::Error::new(
@@ -286,8 +297,15 @@ impl SlowTcpJunction {
         let mut last_error = None;
         let mut bytes_sent = 0;
 
-        // Send the data to all links
+        // Send the data to all links except the excluded one
         for link in links.iter() {
+            // Skip if this is the excluded link
+            if let Some(excluded_id) = exclude_link_id {
+                if link.id() == excluded_id {
+                    continue;
+                }
+            }
+
             match link.send(data).await {
                 Ok(sent) => {
                     // Return the number of bytes sent on the first successful transmission
@@ -327,7 +345,7 @@ impl SlowTcpJunction {
                     Ok(link) => {
                         // Add the new link to the junction
                         let link = Arc::new(link);
-                        self.add_link(link.clone());
+                        self.add_link(link.clone()).await;
                         self.clone().start_processing(link);
                     }
                     Err(e) => {
@@ -358,11 +376,11 @@ impl SlowTcpJunction {
                     Ok(size) => {
                         self.log(&format!("Received {} bytes from link", size));
                         if size == 0 {
-                            self.remove_link(link.id());
+                            self.remove_link(link.id()).await;
                             break;
                         }
                         let data = &buffer[..size];
-                        self.process(data).await;
+                        self.process(data, link.id()).await;
                     }
                     Err(_) => {
                         self.log("Error receiving data from link");
@@ -371,7 +389,7 @@ impl SlowTcpJunction {
                 }
             }
 
-            self.remove_link(link.id());
+            self.remove_link(link.id()).await;
             self.log("Link processing task finished");
         });
     }
@@ -383,38 +401,46 @@ impl SlowTcpJunction {
     ///
     /// # Arguments
     /// * `data` - The slice of bytes received from the link
-    async fn process(&self, data: &[u8]) {
+    /// * `link_id` - The ID of the link that received the data
+    async fn process(&self, data: &[u8], link_id: u64) {
         // Try to unpack the data into a SlowPackage
         let package = match SlowPackage::unpack(data) {
             Some(package) => package,
             None => {
-                self.log(&format!("Failed to unpack received data: {:?}", data));
+                self.log(&format!(
+                    "Failed to unpack received data from link {}: {:?}",
+                    link_id, data
+                ));
+                self.rejected_package_count.fetch_add(1, Ordering::Relaxed);
                 return;
             }
         };
 
         // Check the package against the tracker
-        let mut tracker = self.package_tracker.lock().unwrap();
-        match tracker.update(&package) {
-            UpdateResult::Duplicate => {
-                self.log("Received duplicate package, discarding");
-                return;
-            }
-            UpdateResult::Old => {
-                self.log("Received old package, discarding");
-                return;
-            }
-            UpdateResult::Success => {
-                // Package is new and valid, continue processing
-                self.log(&format!(
-                    "Received new package {} from {} for {}",
-                    package.package_id(),
-                    package.sender_id(),
-                    package.recipient_id()
-                ));
+        {
+            let mut tracker = self.package_tracker.lock().await;
+            match tracker.update(&package) {
+                UpdateResult::Duplicate => {
+                    self.log("Received duplicate package, discarding");
+                    self.rejected_package_count.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+                UpdateResult::Old => {
+                    self.log("Received old package, discarding");
+                    self.rejected_package_count.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+                UpdateResult::Success => {
+                    // Package is new and valid, continue processing
+                    self.log(&format!(
+                        "Received new package {} from {} for {}",
+                        package.package_id(),
+                        package.sender_id(),
+                        package.recipient_id()
+                    ));
+                }
             }
         }
-        drop(tracker);
 
         // Increment the received package counter
         self.received_package_count.fetch_add(1, Ordering::Relaxed);
@@ -422,12 +448,12 @@ impl SlowTcpJunction {
         // Check if the package is intended for this junction
         if *package.recipient_id() == self.junction_id {
             // Lock the deque and add the package
-            let mut received_packages = self.received_packages.lock().unwrap();
+            let mut received_packages = self.received_packages.lock().await;
             self.log("Package is for this junction, saving to queue");
             received_packages.push_back(package);
         } else {
             self.log("Package is not for this junction, forwarding.");
-            // self.send(&data).await;
+            self.broadcast(&data, Some(link_id)).await.unwrap();
         }
     }
 }

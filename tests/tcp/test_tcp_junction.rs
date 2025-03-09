@@ -34,10 +34,18 @@ async fn test_tcp_junction() {
 
     // Verify that both junctions have the expected number of links
     // Junction1 should have 1 link from junction2's connection
-    assert_eq!(junction1.link_count(), 1, "Junction1 should have 1 link");
+    assert_eq!(
+        junction1.link_count().await,
+        1,
+        "Junction1 should have 1 link"
+    );
 
     // Junction2 should also have 1 link to junction1
-    assert_eq!(junction2.link_count(), 1, "Junction2 should have 1 link");
+    assert_eq!(
+        junction2.link_count().await,
+        1,
+        "Junction2 should have 1 link"
+    );
 
     // Create test data to send from junction2 to junction1
     let test_message = b"Hello from junction2 to junction1";
@@ -80,7 +88,7 @@ async fn test_tcp_junction() {
 
     // Verify that junction2 now has 0 links since junction1 was closed
     assert_eq!(
-        junction2.link_count(),
+        junction2.link_count().await,
         0,
         "Junction2 should have 0 links after junction1 was closed"
     );
