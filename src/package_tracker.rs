@@ -1,14 +1,16 @@
+use crate::junction_id::JunctionId;
 use crate::package::SlowPackage;
 use crate::tracker::{PacketTracker, UpdateResult};
+use std::collections::HashMap;
 
 /// Tracks package information for Slow network communications.
 ///
-/// This struct wraps a PacketTracker to provide package-specific tracking
-/// functionality, enabling monitoring of received packages and detection
-/// of duplicates.
+/// This struct maintains a map of PacketTrackers for each unique junction ID,
+/// enabling monitoring of received packages and detection of duplicates on a
+/// per-sender basis.
 pub struct SlowPackageTracker {
-    /// The underlying packet tracker used to track package IDs
-    packet_tracker: PacketTracker,
+    /// Map of packet trackers for each sender junction
+    packet_trackers: HashMap<JunctionId, PacketTracker>,
 }
 
 impl SlowPackageTracker {
@@ -16,10 +18,10 @@ impl SlowPackageTracker {
     ///
     /// # Returns
     ///
-    /// A new `SlowPackageTracker` with a fresh `PacketTracker`.
+    /// A new `SlowPackageTracker` with an empty map of packet trackers.
     pub fn new() -> Self {
         SlowPackageTracker {
-            packet_tracker: PacketTracker::new(),
+            packet_trackers: HashMap::new(),
         }
     }
 
@@ -35,30 +37,10 @@ impl SlowPackageTracker {
     /// `UpdateResult::Old` if the package is too old, or `UpdateResult::Success` if the package was
     /// successfully processed.
     pub fn update(&mut self, package: &SlowPackage) -> UpdateResult {
-        self.packet_tracker.update(package.package_id() as u64)
-    }
-
-    /// Gets the highest package ID received.
-    ///
-    /// # Returns
-    ///
-    /// The highest package ID received.
-    pub fn highest_package_id(&self) -> u64 {
-        self.packet_tracker.highest_packet_id()
-    }
-
-    /// Gets the package bitfield used for tracking recent packages.
-    ///
-    /// # Returns
-    ///
-    /// The package bitfield.
-    pub fn package_bitfield(&self) -> u64 {
-        self.packet_tracker.packet_bitfield()
-    }
-}
-
-impl Default for SlowPackageTracker {
-    fn default() -> Self {
-        Self::new()
+        let tracker = self
+            .packet_trackers
+            .entry(package.sender_id().clone())
+            .or_insert_with(PacketTracker::new);
+        tracker.update(package.package_id() as u64)
     }
 }
