@@ -3,7 +3,7 @@ use super::tcp_listener::SlowTcpListener;
 use super::tcp_stream::SlowTcpStream;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -11,7 +11,7 @@ const HELLO_MESSAGE: &[u8] = b"SLOW_HELLO";
 const HELLO_RESPONSE: &[u8] = b"SLOW_WELCOME";
 
 // Static counter for assigning unique IDs to each SlowTcpLink
-static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+static NEXT_ID: AtomicU32 = AtomicU32::new(0);
 
 /// A TCP-based link for the SLOW protocol that handles connection establishment
 /// and data transfer with length-prefixed framing.
@@ -19,7 +19,7 @@ pub struct SlowTcpLink {
     /// The underlying TCP stream for this link
     stream: SlowTcpStream,
     /// Unique identifier for this link instance
-    id: u64,
+    id: u32,
 }
 
 // ---
@@ -104,7 +104,7 @@ impl SlowTcpLink {
     ///
     /// # Returns
     /// The numeric ID assigned to this link when it was created
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> u32 {
         self.id
     }
 
