@@ -113,7 +113,7 @@ impl SlowTcpJunction {
         let data = package.pack(package_id);
 
         // Use the existing send method to send the data
-        let result = self.send(&data, package.recipient_id()).await;
+        let result = self.send(&data).await;
 
         // If send was successful, increment the sent package counter
         if result.is_ok() {
@@ -269,11 +269,10 @@ impl SlowTcpJunction {
     ///
     /// # Arguments
     /// * `data` - The byte slice to send
-    /// * `target_junction_id` - The ID of the destination junction (for routing purposes)
     ///
     /// # Returns
     /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
-    async fn send(&self, data: &[u8], _target_junction_id: &JunctionId) -> std::io::Result<usize> {
+    async fn send(&self, data: &[u8]) -> std::io::Result<usize> {
         // Get a reference to all active links
         let links = self.links.lock().unwrap();
 
@@ -363,7 +362,7 @@ impl SlowTcpJunction {
                             break;
                         }
                         let data = &buffer[..size];
-                        self.process(data);
+                        self.process(data).await;
                     }
                     Err(_) => {
                         self.log("Error receiving data from link");
@@ -384,7 +383,7 @@ impl SlowTcpJunction {
     ///
     /// # Arguments
     /// * `data` - The slice of bytes received from the link
-    fn process(&self, data: &[u8]) {
+    async fn process(&self, data: &[u8]) {
         // Try to unpack the data into a SlowPackage
         let package = match SlowPackage::unpack(data) {
             Some(package) => package,
@@ -427,7 +426,8 @@ impl SlowTcpJunction {
             self.log("Package is for this junction, saving to queue");
             received_packages.push_back(package);
         } else {
-            self.log("Package is not for this junction, ignoring");
+            self.log("Package is not for this junction, forwarding.");
+            // self.send(&data).await;
         }
     }
 }
