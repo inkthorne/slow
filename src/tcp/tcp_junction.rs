@@ -248,6 +248,26 @@ impl SlowTcpJunction {
         println!("[{}]: {}", self.junction_id, message);
     }
 
+    /// Sends data through a specific link.
+    ///
+    /// # Arguments
+    /// * `data` - The byte slice to send
+    /// * `link_id` - The ID of the link to send through
+    ///
+    /// # Returns
+    /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
+    async fn forward(&self, data: &[u8], link_id: SlowLinkId) -> std::io::Result<usize> {
+        let links = self.links.lock().await;
+        if let Some(link) = links.iter().find(|l| l.id() == link_id) {
+            link.send(data).await
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Link {} not found", link_id),
+            ))
+        }
+    }
+
     /// Adds a TCP link to the junction.
     ///
     /// # Arguments
@@ -288,6 +308,11 @@ impl SlowTcpJunction {
         data: &[u8],
         exclude_link_id: Option<SlowLinkId>,
     ) -> std::io::Result<usize> {
+        self.log(&format!(
+            "Broadcasting data to all links (excluding {})",
+            exclude_link_id.unwrap_or(0)
+        ));
+
         // Get a reference to all active links
         let links = self.links.lock().await;
 
@@ -375,10 +400,8 @@ impl SlowTcpJunction {
         task::spawn(async move {
             let mut buffer = vec![0u8; SlowTcpLink::max_frame_size()];
             loop {
-                self.log(&format!("Waiting to receive data from link {}", link.id()));
                 match link.receive(&mut buffer).await {
                     Ok(size) => {
-                        self.log(&format!("Received {} bytes from link", size));
                         if size == 0 {
                             self.remove_link(link.id()).await;
                             break;
@@ -420,17 +443,19 @@ impl SlowTcpJunction {
             }
         };
 
+        let recipient_id = package.recipient_id();
+
         // Check the package against the router with the link_id
-        {
+        let best_link = {
             let mut router = self.router.lock().await;
             match router.update(&package, link_id) {
-                UpdateResult::Duplicate => {
-                    self.log("Received duplicate package, discarding");
-                    self.rejected_package_count.fetch_add(1, Ordering::Relaxed);
-                    return;
-                }
-                UpdateResult::Old => {
-                    self.log("Received old package, discarding");
+                UpdateResult::Duplicate | UpdateResult::Old => {
+                    self.log(&format!(
+                        "Received old or duplicate package {} from {} for {}",
+                        package.package_id(),
+                        package.sender_id(),
+                        recipient_id
+                    ));
                     self.rejected_package_count.fetch_add(1, Ordering::Relaxed);
                     return;
                 }
@@ -440,24 +465,45 @@ impl SlowTcpJunction {
                         "Received new package {} from {} for {}",
                         package.package_id(),
                         package.sender_id(),
-                        package.recipient_id()
+                        recipient_id
                     ));
                 }
             }
-        }
+
+            router.get_best_link(recipient_id)
+        };
 
         // Increment the received package counter
         self.received_package_count.fetch_add(1, Ordering::Relaxed);
 
         // Check if the package is intended for this junction
-        if *package.recipient_id() == self.junction_id {
+        if *recipient_id == self.junction_id {
             // Lock the deque and add the package
             let mut received_packages = self.received_packages.lock().await;
             self.log("Package is for this junction, saving to queue");
             received_packages.push_back(package);
         } else {
-            self.log("Package is not for this junction, forwarding.");
-            self.broadcast(&data, Some(link_id)).await.unwrap();
+            if best_link.is_some() {
+                let best_link = best_link.unwrap();
+                self.log(&format!(
+                    "Forwarding package through best link {}",
+                    best_link
+                ));
+
+                let result = self.forward(&data, best_link).await;
+                if result.is_ok() {
+                    self.sent_package_count.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+            }
+
+            self.log("No best link found or best link failed; broadcasting to all links");
+            self.broadcast(&data, Some(link_id))
+                .await
+                .unwrap_or_else(|e| {
+                    self.log(&format!("Failed to broadcast: {}", e));
+                    0
+                });
         }
     }
 }

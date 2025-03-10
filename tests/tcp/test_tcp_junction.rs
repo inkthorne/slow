@@ -365,11 +365,38 @@ async fn test_tcp_junction_triangle() {
         "Junction2 should have rejected 0 packages"
     );
 
-    // Junction1 should not have received any package
+    // Junction1 should not have received any package yet
     assert_eq!(
         junction1.received_package_count(),
         0,
         "Junction1 should have received 0 packages"
+    );
+
+    // Now have junction3 send a response package back to junction1
+    let response_message = b"Response from junction3 to junction1";
+    let response_package =
+        SlowPackage::new_bin_payload(junction_id1.clone(), junction_id3.clone(), response_message);
+
+    // Send the package from junction3 to junction1
+    let response_bytes_sent = junction3
+        .send_package(&response_package)
+        .await
+        .expect("Failed to send response package from junction3 to junction1");
+
+    assert_eq!(
+        response_bytes_sent,
+        response_package.pack(0).len(),
+        "Response bytes sent should match packaged data length"
+    );
+
+    // Allow some time for the response package to traverse the network
+    time::sleep(Duration::from_millis(300)).await;
+
+    // Now junction1 should have received 1 package
+    assert_eq!(
+        junction1.received_package_count(),
+        1,
+        "Junction1 should have received 1 package"
     );
 
     // Close all junctions
