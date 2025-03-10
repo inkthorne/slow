@@ -15,8 +15,8 @@ use tokio::task;
 /// `SlowTcpJunction` is responsible for maintaining connections with multiple
 /// TCP endpoints and provides methods to add, remove, and interact with links.
 pub struct SlowTcpJunction {
-    /// The collection of TCP links managed by this junction
-    links: Mutex<Vec<Arc<SlowTcpLink>>>,
+    /// The collection of TCP links managed by this junction, keyed by their link ID
+    links: Mutex<HashMap<SlowLinkId, Arc<SlowTcpLink>>>,
 
     /// A notification mechanism to signal when links are added/removed
     links_changed: Arc<Notify>,
@@ -61,7 +61,7 @@ impl SlowTcpJunction {
     /// A new SlowTcpJunction instance
     pub fn new(addr: SocketAddr, junction_id: JunctionId) -> Arc<Self> {
         let junction = SlowTcpJunction {
-            links: Mutex::new(Vec::new()),
+            links: Mutex::new(HashMap::new()),
             links_changed: Arc::new(Notify::new()),
             local_addr: addr,
             junction_id,
@@ -116,8 +116,19 @@ impl SlowTcpJunction {
         // Serialize the package to bytes
         let data = package.pack(package_id);
 
-        // Use the existing send method to send the data
-        let result = self.broadcast(&data, None).await;
+        // Check router for best link first
+        let best_link = {
+            let router = self.router.lock().await;
+            router.get_best_link(package.recipient_id())
+        };
+
+        let result = if let Some(link_id) = best_link {
+            self.log(&format!("Sending package through best link {}", link_id));
+            self.forward(&data, link_id).await
+        } else {
+            self.log("No best link found; broadcasting to all links");
+            self.broadcast(&data, None).await
+        };
 
         // If send was successful, increment the sent package counter
         if result.is_ok() {
@@ -142,7 +153,7 @@ impl SlowTcpJunction {
         let mut last_error = None;
 
         // Close all links
-        for link in links.iter() {
+        for link in links.values() {
             if let Err(e) = link.close().await {
                 self.log(&format!("Error closing link: {}", e));
                 last_error = Some(e);
@@ -258,7 +269,7 @@ impl SlowTcpJunction {
     /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
     async fn forward(&self, data: &[u8], link_id: SlowLinkId) -> std::io::Result<usize> {
         let links = self.links.lock().await;
-        if let Some(link) = links.iter().find(|l| l.id() == link_id) {
+        if let Some(link) = links.get(&link_id) {
             link.send(data).await
         } else {
             Err(std::io::Error::new(
@@ -275,7 +286,7 @@ impl SlowTcpJunction {
     async fn add_link(&self, link: Arc<SlowTcpLink>) {
         let mut links = self.links.lock().await;
         self.log(&format!("link {} added to junction", link.id()));
-        links.push(link);
+        links.insert(link.id(), link);
         self.links_changed.notify_one();
     }
 
@@ -286,7 +297,7 @@ impl SlowTcpJunction {
     async fn remove_link(&self, link_id: SlowLinkId) {
         let mut links = self.links.lock().await;
         // Find and remove the link with matching ID
-        links.retain(|link| link.id() != link_id);
+        links.remove(&link_id);
         self.links_changed.notify_one();
         self.log(&format!("link {} removed from junction", link_id));
         self.log(&format!("Link count: {}", links.len()));
@@ -327,7 +338,7 @@ impl SlowTcpJunction {
         let mut bytes_sent = 0;
 
         // Send the data to all links except the excluded one
-        for link in links.iter() {
+        for link in links.values() {
             // Skip if this is the excluded link
             if let Some(excluded_id) = exclude_link_id {
                 if link.id() == excluded_id {
