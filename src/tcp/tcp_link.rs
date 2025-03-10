@@ -13,13 +13,16 @@ const HELLO_RESPONSE: &[u8] = b"SLOW_WELCOME";
 // Static counter for assigning unique IDs to each SlowTcpLink
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
 
+/// Unique identifier for a SlowTcpLink instance
+pub type SlowLinkId = u32;
+
 /// A TCP-based link for the SLOW protocol that handles connection establishment
 /// and data transfer with length-prefixed framing.
 pub struct SlowTcpLink {
     /// The underlying TCP stream for this link
     stream: SlowTcpStream,
     /// Unique identifier for this link instance
-    id: u32,
+    id: SlowLinkId,
 }
 
 // ---
@@ -104,7 +107,7 @@ impl SlowTcpLink {
     ///
     /// # Returns
     /// The numeric ID assigned to this link when it was created
-    pub fn id(&self) -> u32 {
+    pub fn id(&self) -> SlowLinkId {
         self.id
     }
 

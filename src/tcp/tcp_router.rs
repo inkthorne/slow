@@ -1,5 +1,6 @@
 use crate::junction::JunctionId;
 use crate::package::SlowPackage;
+use crate::tcp::tcp_link::SlowLinkId;
 use crate::tracker::PacketTracker;
 use crate::tracker::UpdateResult;
 use std::collections::HashMap;
@@ -69,7 +70,7 @@ impl SlowTcpRouteStats {
     /// # Returns
     ///
     /// The result of the update operation
-    fn update(&mut self, package: &SlowPackage, link_id: u32) -> UpdateResult {
+    fn update(&mut self, package: &SlowPackage, link_id: SlowLinkId) -> UpdateResult {
         // Convert u32 package_id to u64 for the packet tracker
         let packet_id = package.package_id() as u64;
         let result = self.packet_tracker.update(packet_id);
@@ -122,7 +123,7 @@ impl SlowTcpRouter {
     /// # Returns
     ///
     /// The result of the update operation
-    pub fn update(&mut self, package: &SlowPackage, link_id: u32) -> UpdateResult {
+    pub fn update(&mut self, package: &SlowPackage, link_id: SlowLinkId) -> UpdateResult {
         let sender_id = package.sender_id().clone();
 
         // Get or create route stats for this sender

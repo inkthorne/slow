@@ -1,6 +1,6 @@
 use crate::junction::JunctionId;
 use crate::package::SlowPackage;
-use crate::tcp::tcp_link::SlowTcpLink;
+use crate::tcp::tcp_link::{SlowLinkId, SlowTcpLink};
 use crate::tcp::tcp_router::SlowTcpRouter;
 use crate::tracker::UpdateResult;
 use std::collections::{HashMap, VecDeque};
@@ -263,7 +263,7 @@ impl SlowTcpJunction {
     ///
     /// # Arguments
     /// * `link_id` - The ID of the SlowTcpLink to remove
-    async fn remove_link(&self, link_id: u32) {
+    async fn remove_link(&self, link_id: SlowLinkId) {
         let mut links = self.links.lock().await;
         // Find and remove the link with matching ID
         links.retain(|link| link.id() != link_id);
@@ -283,7 +283,11 @@ impl SlowTcpJunction {
     ///
     /// # Returns
     /// * `std::io::Result<usize>` - The number of bytes sent or an IO error
-    async fn broadcast(&self, data: &[u8], exclude_link_id: Option<u32>) -> std::io::Result<usize> {
+    async fn broadcast(
+        &self,
+        data: &[u8],
+        exclude_link_id: Option<SlowLinkId>,
+    ) -> std::io::Result<usize> {
         // Get a reference to all active links
         let links = self.links.lock().await;
 
@@ -402,7 +406,7 @@ impl SlowTcpJunction {
     /// # Arguments
     /// * `data` - The slice of bytes received from the link
     /// * `link_id` - The ID of the link that received the data
-    async fn process(&self, data: &[u8], link_id: u32) {
+    async fn process(&self, data: &[u8], link_id: SlowLinkId) {
         // Try to unpack the data into a SlowPackage
         let package = match SlowPackage::unpack(data) {
             Some(package) => package,
