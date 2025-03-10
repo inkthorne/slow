@@ -1,7 +1,7 @@
 use crate::junction::JunctionId;
 use crate::package::SlowPackage;
-use crate::package_tracker::SlowPackageTracker;
 use crate::tcp::tcp_link::SlowTcpLink;
+use crate::tcp::tcp_router::SlowTcpRouter;
 use crate::tracker::UpdateResult;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
@@ -42,8 +42,8 @@ pub struct SlowTcpJunction {
     /// Queue of received packages meant for this junction
     received_packages: Mutex<VecDeque<SlowPackage>>,
 
-    /// Tracks packages to detect duplicates and old packages
-    package_tracker: Mutex<SlowPackageTracker>,
+    /// Routes packages and tracks statistics for different links
+    router: Mutex<SlowTcpRouter>,
 }
 
 // ---
@@ -70,7 +70,7 @@ impl SlowTcpJunction {
             sent_package_count: AtomicUsize::new(0),
             rejected_package_count: AtomicUsize::new(0),
             received_packages: Mutex::new(VecDeque::new()),
-            package_tracker: Mutex::new(SlowPackageTracker::new()),
+            router: Mutex::new(SlowTcpRouter::new()),
         };
 
         let junction = Arc::new(junction);
@@ -416,10 +416,10 @@ impl SlowTcpJunction {
             }
         };
 
-        // Check the package against the tracker
+        // Check the package against the router with the link_id
         {
-            let mut tracker = self.package_tracker.lock().await;
-            match tracker.update(&package) {
+            let mut router = self.router.lock().await;
+            match router.update(&package, link_id) {
                 UpdateResult::Duplicate => {
                     self.log("Received duplicate package, discarding");
                     self.rejected_package_count.fetch_add(1, Ordering::Relaxed);
