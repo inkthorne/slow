@@ -18,6 +18,7 @@ pub enum PackageType {
     Pong,
     Json,
     Bin,
+    Howdy,
 }
 
 impl From<PackageType> for u8 {
@@ -39,6 +40,7 @@ impl From<PackageType> for u8 {
             PackageType::Pong => 2,
             PackageType::Json => 3,
             PackageType::Bin => 4,
+            PackageType::Howdy => 5,
         }
     }
 }
@@ -66,6 +68,7 @@ impl TryFrom<u8> for PackageType {
             2 => Ok(PackageType::Pong),
             3 => Ok(PackageType::Json),
             4 => Ok(PackageType::Bin),
+            5 => Ok(PackageType::Howdy),
             _ => Err(()),
         }
     }
@@ -233,6 +236,30 @@ impl SlowPackage {
             hop_count: 0,
             package_type: PackageType::Hello.into(),
             package_id,
+            payload_size: payload.len() as u16,
+        };
+
+        SlowPackage { header, payload }
+    }
+
+    /// Creates a new `SlowPackage` instance representing a Howdy package.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender_id` - A `JunctionId` representing the sender.
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - A `SlowPackage` instance.
+    pub fn new_howdy(sender_id: JunctionId) -> Self {
+        let payload = Vec::new();
+        let recipient_id = JunctionId::new("all");
+        let header = SlowPackageHeader {
+            recipient_id,
+            sender_id,
+            hop_count: 0,
+            package_type: PackageType::Howdy.into(),
+            package_id: 0,
             payload_size: payload.len() as u16,
         };
 

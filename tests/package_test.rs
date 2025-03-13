@@ -176,13 +176,15 @@ fn test_package_type_conversion() {
     assert_eq!(u8::from(PackageType::Pong), 2);
     assert_eq!(u8::from(PackageType::Json), 3);
     assert_eq!(u8::from(PackageType::Bin), 4);
+    assert_eq!(u8::from(PackageType::Howdy), 5);
 
     assert_eq!(PackageType::try_from(0).unwrap(), PackageType::Hello);
     assert_eq!(PackageType::try_from(1).unwrap(), PackageType::Ping);
     assert_eq!(PackageType::try_from(2).unwrap(), PackageType::Pong);
     assert_eq!(PackageType::try_from(3).unwrap(), PackageType::Json);
     assert_eq!(PackageType::try_from(4).unwrap(), PackageType::Bin);
+    assert_eq!(PackageType::try_from(5).unwrap(), PackageType::Howdy);
 
     // Test invalid conversion
-    assert!(PackageType::try_from(5).is_err());
+    assert!(PackageType::try_from(6).is_err());
 }

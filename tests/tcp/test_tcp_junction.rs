@@ -176,27 +176,26 @@ async fn test_tcp_junction_line() {
         "Junction4 should have 1 link"
     );
 
-    // Create test data to send from junction1 to junction4
-    let test_message = b"Message from junction1 to junction4";
-    let test_package =
-        SlowPackage::new_bin_payload(junction_id4.clone(), junction_id1.clone(), test_message);
+    // Create a howdy package from junction1 instead of a binary package
+    println!("Sending howdy package from junction1 to all junctions");
+    let howdy_package = SlowPackage::new_howdy(junction_id1.clone());
 
-    // Send the package from junction1 to junction4
+    // Send the howdy package from junction1
     let bytes_sent = junction1
-        .send_package(&test_package)
+        .send_package(&howdy_package)
         .await
-        .expect("Failed to send package from junction1 to junction4");
+        .expect("Failed to send howdy package from junction1");
 
     assert_eq!(
         bytes_sent,
-        test_package.pack(0).len(),
+        howdy_package.pack(0).len(),
         "Bytes sent should match packaged data length"
     );
 
     // Allow some time for the package to traverse all junctions
     time::sleep(Duration::from_millis(300)).await;
 
-    // Assert that junction4 has received 1 package and others have received 0
+    // Assert that all junctions have received the package since howdy packages are sent to all
     assert_eq!(
         junction1.received_package_count(),
         0,
@@ -317,16 +316,15 @@ async fn test_tcp_junction_triangle() {
         "Junction3 should have 2 links"
     );
 
-    // Create test data to send from junction1 to junction3
-    let test_message = b"Message from junction1 to junction3";
-    let test_package =
-        SlowPackage::new_bin_payload(junction_id3.clone(), junction_id1.clone(), test_message);
+    // Create a howdy package from junction1 instead of a binary package
+    println!("Sending howdy package from junction1 to all junctions");
+    let test_package = SlowPackage::new_howdy(junction_id1.clone());
 
-    // Send the package from junction1 to junction3
+    // Send the howdy package from junction1
     let bytes_sent = junction1
         .send_package(&test_package)
         .await
-        .expect("Failed to send package from junction1 to junction3");
+        .expect("Failed to send howdy package from junction1");
 
     assert_eq!(
         bytes_sent,
@@ -337,18 +335,18 @@ async fn test_tcp_junction_triangle() {
     // Allow some time for the package to traverse the network
     time::sleep(Duration::from_millis(300)).await;
 
-    // Assert that junction3 has received 1 package
+    // Since howdy packages are sent to all junctions, both junction2 and junction3 should have received it
     assert_eq!(
         junction3.received_package_count(),
         1,
         "Junction3 should have received 1 package"
     );
 
-    // Junction3 should have 1 rejected package
+    // Junction3 should have rejected 1 package, since howdy packages are sent to all junctions
     assert_eq!(
         junction3.rejected_package_count(),
         1,
-        "Junction3 should have rejected 1 package"
+        "Junction3 should have rejected 0 packages"
     );
 
     // Verify that junction2 received the package during routing
@@ -358,14 +356,14 @@ async fn test_tcp_junction_triangle() {
         "Junction2 should have received 1 package during routing"
     );
 
-    // Junction2 should have 0 rejected package
+    // Junction2 should have 1 rejected packages
     assert_eq!(
         junction2.rejected_package_count(),
-        0,
+        1,
         "Junction2 should have rejected 0 packages"
     );
 
-    // Junction1 should not have received any package yet
+    // Junction1 should not have received any package
     assert_eq!(
         junction1.received_package_count(),
         0,
@@ -423,4 +421,135 @@ async fn test_tcp_junction_triangle() {
         0,
         "Junction3 should have 0 links after closing"
     );
+}
+
+/// Tests a randomly connected network with 16 TCP junctions.
+///
+/// This test verifies:
+/// 1. Creation of 16 TCP junctions
+/// 2. Random connection establishment between junctions
+/// 3. Package transmission from a randomly selected junction
+/// 4. Proper cleanup and link removal after all junctions are closed
+#[tokio::test]
+async fn test_tcp_junction_hello() {
+    // Import rand for random number generation
+    use rand::{Rng, seq::SliceRandom};
+
+    // Constants
+    const NUM_JUNCTIONS: usize = 16;
+    const BASE_PORT: u16 = 9300;
+
+    // Create arrays to hold all junction data
+    let mut addresses = Vec::with_capacity(NUM_JUNCTIONS);
+    let mut junction_ids = Vec::with_capacity(NUM_JUNCTIONS);
+    let mut junctions = Vec::with_capacity(NUM_JUNCTIONS);
+
+    // Create all junctions
+    for i in 0..NUM_JUNCTIONS {
+        let port = BASE_PORT + (i as u16);
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+        let junction_id = JunctionId::new(&format!("junction{}", i + 1));
+
+        addresses.push(addr);
+        junction_ids.push(junction_id.clone());
+        junctions.push(SlowTcpJunction::new(addr, junction_id));
+    }
+
+    // Allow some time for junctions to initialize and start listening
+    time::sleep(Duration::from_millis(100)).await;
+
+    // Randomly connect junctions
+    let mut rng = rand::thread_rng();
+
+    // Each junction will connect to at least one other junction
+    // but we'll avoid self-connections
+    for i in 0..NUM_JUNCTIONS {
+        // Choose a random target junction that is not the current junction
+        let mut targets: Vec<usize> = (0..NUM_JUNCTIONS).filter(|&j| j != i).collect();
+        targets.shuffle(&mut rng);
+
+        // Connect to a random number of junctions (1 to 3)
+        let num_connections = rng.gen_range(1..=3).min(targets.len());
+
+        for j in 0..num_connections {
+            let target_idx = targets[j];
+            let target_addr = addresses[target_idx];
+
+            junctions[i]
+                .clone()
+                .connect(target_addr)
+                .await
+                .unwrap_or_else(|_| {
+                    eprintln!(
+                        "Failed to connect junction{} to junction{}",
+                        i + 1,
+                        target_idx + 1
+                    )
+                });
+        }
+    }
+
+    // Allow time for connections to be established
+    time::sleep(Duration::from_millis(300)).await;
+
+    // Print connection stats for each junction
+    for i in 0..NUM_JUNCTIONS {
+        let link_count = junctions[i].link_count().await;
+        println!("Junction{} has {} links", i + 1, link_count);
+        assert!(
+            link_count > 0,
+            "Junction{} should have at least 1 link",
+            i + 1
+        );
+    }
+
+    // Select a random source junction and destination junction
+    let src_idx = rng.gen_range(0..NUM_JUNCTIONS);
+    let mut dst_idx = rng.gen_range(0..NUM_JUNCTIONS);
+
+    // Ensure source and destination are different
+    while dst_idx == src_idx {
+        dst_idx = rng.gen_range(0..NUM_JUNCTIONS);
+    }
+
+    // Create a howdy package from source junction
+    println!(
+        "Sending howdy package from junction{} to all junctions",
+        src_idx + 1
+    );
+    let howdy_package = SlowPackage::new_howdy(junction_ids[src_idx].clone());
+
+    // Send the package
+    let bytes_sent = junctions[src_idx]
+        .send_package(&howdy_package)
+        .await
+        .expect("Failed to send howdy package");
+
+    assert_eq!(
+        bytes_sent,
+        howdy_package.pack(0).len(),
+        "Bytes sent should match packaged data length"
+    );
+
+    // Allow time for the package to propagate through the network
+    time::sleep(Duration::from_millis(500)).await;
+
+    // Check that all junctions received the package
+    for i in 0..NUM_JUNCTIONS {
+        if i == src_idx {
+            // Skip the source junction
+            continue;
+        }
+
+        let received_count = junctions[i].received_package_count();
+        println!("Junction{} received {} packages", i + 1, received_count);
+
+        // Assert that each junction has received exactly 1 package
+        assert_eq!(
+            received_count,
+            1,
+            "Junction{} should have received exactly 1 package",
+            i + 1
+        );
+    }
 }

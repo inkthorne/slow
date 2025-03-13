@@ -1,5 +1,5 @@
 use crate::junction::JunctionId;
-use crate::package::SlowPackage;
+use crate::package::{PackageType, SlowPackage};
 use crate::tcp::tcp_link::{SlowLinkId, SlowTcpLink};
 use crate::tcp::tcp_router::SlowTcpRouter;
 use crate::tracker::UpdateResult;
@@ -285,7 +285,6 @@ impl SlowTcpJunction {
     /// * `link` - The SlowTcpLink to add
     async fn add_link(&self, link: Arc<SlowTcpLink>) {
         let mut links = self.links.lock().await;
-        self.log(&format!("link {} added to junction", link.id()));
         links.insert(link.id(), link);
         self.links_changed.notify_one();
     }
@@ -454,6 +453,7 @@ impl SlowTcpJunction {
             }
         };
 
+        let package_type = package.package_type();
         let recipient_id = package.recipient_id();
 
         // Check the package against the router with the link_id
@@ -479,6 +479,16 @@ impl SlowTcpJunction {
                         recipient_id
                     ));
                 }
+            }
+
+            // Only broadcast Hello packages to all links
+            if package_type == Ok(PackageType::Howdy) {
+                self.broadcast(&data, Some(link_id))
+                    .await
+                    .unwrap_or_else(|e| {
+                        self.log(&format!("Failed to broadcast: {}", e));
+                        0
+                    });
             }
 
             router.get_best_link(recipient_id)
@@ -507,14 +517,6 @@ impl SlowTcpJunction {
                     return;
                 }
             }
-
-            self.log("No best link found or best link failed; broadcasting to all links");
-            self.broadcast(&data, Some(link_id))
-                .await
-                .unwrap_or_else(|e| {
-                    self.log(&format!("Failed to broadcast: {}", e));
-                    0
-                });
         }
     }
 }
