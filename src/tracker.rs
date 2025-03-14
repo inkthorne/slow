@@ -1,7 +1,7 @@
 /// Represents the result of updating a packet
 #[derive(Debug, PartialEq)]
 pub enum UpdateResult {
-    /// Packet was successfully processed
+    /// Packet should be processed
     Success,
     /// Packet is a duplicate and should be discarded
     Duplicate,
